@@ -36,16 +36,42 @@ const canSend = ref(true)
 // Simulator: send a message AS THE VENDOR (enters real ingestion pipeline)
 const simText = ref('')
 const simSending = ref(false)
+// Phase 6C: simulated voice notes / photos run through ASR + vision extraction
+const simType = ref<'text' | 'voice' | 'image'>('text')
+const simFile = ref<File | null>(null)
+const simFileB64 = ref('')
+async function onSimFile(e: Event) {
+  const f = (e.target as HTMLInputElement)?.files?.[0]
+  if (!f) { simFile.value = null; simFileB64.value = ''; return }
+  if (f.size > 5 * 1024 * 1024) {
+    useToast().add({ title: 'File too large', description: 'Keep simulated media under 5MB.', color: 'error' })
+    return
+  }
+  simFile.value = f
+  simFileB64.value = await new Promise<string>((resolve) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result || ''))
+    r.readAsDataURL(f)
+  })
+}
 async function simulateInbound() {
-  if (!simText.value.trim() || !selected.value) return
+  if (!selected.value) return
+  const hasMedia = simType.value !== 'text' && !!simFileB64.value
+  if (!simText.value.trim() && !hasMedia) return
   simSending.value = true
   try {
-    await api('/whatsapp/simulator/send', {
+    const res: any = await api('/whatsapp/simulator/send', {
       method: 'POST',
-      body: { from_phone: selected.value.contact_phone, text: simText.value.trim() },
+      body: {
+        from_phone: selected.value.contact_phone,
+        text: simText.value.trim(),
+        msg_type: simType.value,
+        media_b64: hasMedia ? simFileB64.value : '',
+      },
     })
-    simText.value = ''
-    useToast().add({ title: 'Message ingested', description: 'Vendor recognition, intent and extraction ran on the pipeline.', icon: 'i-lucide-bot' })
+    simText.value = ''; simFile.value = null; simFileB64.value = ''
+    const engine = res?.media_engine && res.media_engine !== 'none' ? ` · ${res.media_engine.toUpperCase()}` : ''
+    useToast().add({ title: `Message ingested${engine}`, description: 'Vendor recognition, intent and extraction ran on the pipeline.', icon: 'i-lucide-bot' })
     await load()
     await open(selected.value)
   } catch (e) {
@@ -180,6 +206,15 @@ onMounted(load)
                  :class="m.direction === 'IN'
                    ? 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-tl-sm'
                    : 'bg-primary-600 text-white rounded-tr-sm'">
+              <div v-if="m.msg_type === 'voice'" class="flex items-center gap-1.5 mb-1 text-[11px] opacity-75">
+                <UIcon name="i-lucide-audio-lines" class="w-3.5 h-3.5" /> Voice note · transcribed
+              </div>
+              <div v-else-if="m.msg_type === 'image'" class="flex items-center gap-1.5 mb-1 text-[11px] opacity-75">
+                <UIcon name="i-lucide-image" class="w-3.5 h-3.5" /> Photo · vision-extracted
+              </div>
+              <div v-else-if="m.msg_type === 'document'" class="flex items-center gap-1.5 mb-1 text-[11px] opacity-75">
+                <UIcon name="i-lucide-file-text" class="w-3.5 h-3.5" /> Document
+              </div>
               <p class="text-sm whitespace-pre-wrap break-words" :class="m.direction === 'IN' ? 'text-zinc-800 dark:text-zinc-200' : ''">{{ m.body_text }}</p>
               <p class="text-[10px] mt-1 flex items-center gap-1" :class="m.direction === 'IN' ? 'text-zinc-400' : 'text-primary-100'">
                 {{ fmtDateTime(m.created_at) }}
@@ -209,9 +244,18 @@ onMounted(load)
           </div>
           <USeparator label="Vendor simulator" :ui="{ border: 'border-dashed' }" />
           <div class="flex gap-2">
-            <UInput v-model="simText" placeholder="Type as the vendor to test the intake pipeline…" class="flex-1" size="sm"
+            <USelect v-model="simType" :items="[
+              { label: 'Text', value: 'text' },
+              { label: 'Voice note', value: 'voice' },
+              { label: 'Photo', value: 'image' },
+            ]" size="sm" class="w-32" />
+            <input v-if="simType !== 'text'" type="file" :accept="simType === 'voice' ? 'audio/*' : 'image/*'"
+                   class="text-xs text-zinc-500 file:mr-2 file:rounded-md file:border-0 file:bg-zinc-100 dark:file:bg-zinc-800 file:px-2 file:py-1 file:text-xs"
+                   @change="onSimFile" aria-label="Attach simulated media" />
+            <UInput v-model="simText" :placeholder="simType === 'text' ? 'Type as the vendor to test the intake pipeline…' : simType === 'voice' ? 'Caption (optional) — audio is transcribed' : 'Caption (optional) — photo is vision-read'" class="flex-1" size="sm"
                     @keydown.enter="simulateInbound" />
-            <UButton icon="i-lucide-bot" color="warning" variant="soft" :loading="simSending" @click="simulateInbound" aria-label="Simulate vendor message" />
+            <UButton icon="i-lucide-bot" color="warning" variant="soft" :loading="simSending"
+                     :disabled="simType !== 'text' && !simFileB64" @click="simulateInbound" aria-label="Simulate vendor message" />
           </div>
         </div>
       </div>

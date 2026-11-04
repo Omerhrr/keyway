@@ -1,17 +1,22 @@
-"""WhatsApp integration module.
+"""WhatsApp integration module (Phase 6A/6C).
 
-This build runs in SIMULATOR mode: inbound vendor messages enter through
-/api/whatsapp/simulator/send and flow through the exact same ingestion pipeline
-a WhatsApp Cloud API webhook would use (idempotency, identity match, intent,
-extraction, drafts, replies). The webhook endpoint exists as a stub so the
-Cloud API can be switched on later without touching the pipeline.
+Two inbound paths feed ONE identical pipeline (idempotency, identity match,
+intent, extraction, drafts, replies):
+- SIMULATOR mode: /api/whatsapp/simulator/send (accepts text and media)
+- CLOUD_API mode: /api/whatsapp/webhook (Meta Cloud API, signature-verified)
+
+Outbound replies go through the Cloud API when configured, otherwise they are
+recorded as simulated messages so the pipeline never breaks in demo mode.
 """
+import base64
 import json
 import uuid
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db, utcnow
+from app.core.config import settings
 from app.core.deps import require_staff, require_perm
 from app.core.serialize import serialize, serialize_list
 from app.core.audit import audit
@@ -20,17 +25,19 @@ from app.core.money import fmt_naira
 from app.modules.identity_models import User
 from app.modules.vendors_models import Vendor, VendorContact
 from app.modules.conversations_models import (Conversation, Message, MessageProcessingAttempt,
-                                              VendorIdentityMatch)
+                                              MessageAttachment, VendorIdentityMatch)
 from app.modules.orders_models import OrderDraft, Order, OrderItem
 from app.modules.whatsapp_models import WhatsAppAccount, MessageTemplate
-from app.modules.recognition import analyze_message
+from app.modules.recognition import analyze_message, media_to_text
 from app.modules.notify import notify
 from app.modules.conversations import send_outbound_text
+from app.modules import whatsapp_cloud as cloud
 
 router = APIRouter(prefix="/api/whatsapp", tags=["whatsapp"])
 
 # Intents that produce order drafts
 DRAFT_INTENTS = {"NEW_ORDER"}
+MEDIA_DIR = Path(settings.DATABASE_URL.replace("sqlite:///", "")).parent / "media"
 
 
 def normalize_phone(p: str) -> str:
@@ -43,10 +50,35 @@ def normalize_phone(p: str) -> str:
 def get_account(db: Session) -> WhatsAppAccount:
     acc = db.query(WhatsAppAccount).first()
     if not acc:
-        acc = WhatsAppAccount(display_name="Keyway Logistics", mode="SIMULATOR", status="CONNECTED")
+        acc = WhatsAppAccount(display_name="Keyway Logistics", mode=settings.WHATSAPP_MODE,
+                              status="CONNECTED" if settings.WHATSAPP_MODE == "CLOUD_API" else "SIMULATED",
+                              phone_number_id=settings.WHATSAPP_PHONE_NUMBER_ID,
+                              waba_id=settings.WHATSAPP_WABA_ID,
+                              access_token_enc=settings.WHATSAPP_ACCESS_TOKEN)
         db.add(acc)
         db.commit()
     return acc
+
+
+def store_media(db: Session, msg: Message, msg_type: str, media_bytes: bytes, mime: str) -> str:
+    """Persist inbound media under db/media/ and attach it to the message."""
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    ext = {"voice": ".ogg", "audio": ".ogg", "image": ".jpg", "document": ".bin"}.get(msg_type, ".bin")
+    if "png" in mime:
+        ext = ".png"
+    elif "jpeg" in mime or "jpg" in mime:
+        ext = ".jpg"
+    elif "mpeg" in mime or "mp3" in mime:
+        ext = ".mp3"
+    elif "ogg" in mime:
+        ext = ".ogg"
+    fname = f"{uuid.uuid4().hex}{ext}"
+    path = MEDIA_DIR / fname
+    path.write_bytes(media_bytes)
+    ref = f"db/media/{fname}"
+    db.add(MessageAttachment(message_id=msg.id, kind=msg_type, mime=mime or "",
+                             file_name=fname, storage_ref=ref, size_bytes=len(media_bytes)))
+    return ref
 
 
 def match_vendor(db: Session, phone: str) -> tuple[Vendor | None, VendorContact | None, str]:
@@ -154,8 +186,9 @@ def build_reply_for_analysis(db, conv, vendor, analysis: dict, draft: OrderDraft
 
 
 def ingest_message(db: Session, *, from_phone: str, wa_message_id: str | None, msg_type: str = "text",
-                   text: str = "", media_ref: str = "") -> dict:
-    """The core inbound pipeline (identical for simulator and future webhook)."""
+                   text: str = "", media_ref: str = "", media_bytes: bytes | None = None,
+                   mime: str = "", contact_name: str = "") -> dict:
+    """The core inbound pipeline (identical for simulator and Cloud API webhook)."""
     phone = normalize_phone(from_phone)
     if not phone:
         raise HTTPException(400, "A valid sender phone number is required")
@@ -165,13 +198,27 @@ def ingest_message(db: Session, *, from_phone: str, wa_message_id: str | None, m
         if existing:
             return {"duplicate": True, "message_id": existing.id, "conversation_id": existing.conversation_id}
     vendor, contact, method = match_vendor(db, phone)
-    conv = find_or_create_conversation(db, phone, vendor, contact.name if contact else "")
+    conv = find_or_create_conversation(db, phone, vendor, contact_name or (contact.name if contact else ""))
+    media_engine = "none"
+    media_error = ""
+    # 2. Media understanding first (voice -> transcript, image -> description);
+    #    the result then flows through the exact same text pipeline.
+    if vendor and media_bytes and msg_type in ("voice", "audio", "image", "document"):
+        mres = media_to_text(db, vendor, msg_type, media_bytes, mime, caption=text)
+        media_engine = mres.get("engine") or "none"
+        media_error = mres.get("detail") or ""
+        text = mres.get("text") or text
     msg = Message(conversation_id=conv.id, direction="IN",
                   wa_message_id=wa_message_id or f"SIM-{uuid.uuid4().hex[:20]}",
                   msg_type=msg_type, body_text=text or "", media_ref=media_ref or "",
                   status="RECEIVED")
     db.add(msg)
     db.flush()
+    if media_bytes and msg_type in ("voice", "audio", "image", "document"):
+        try:
+            msg.media_ref = store_media(db, msg, msg_type, media_bytes, mime)
+        except Exception:
+            pass  # storage failure must not block order intake
     db.add(VendorIdentityMatch(conversation_id=conv.id, message_id=msg.id, phone=phone,
                                matched_vendor_id=vendor.id if vendor else None,
                                method=method, confidence=1.0 if vendor else 0.0,
@@ -265,11 +312,14 @@ def ingest_message(db: Session, *, from_phone: str, wa_message_id: str | None, m
                                     result={"intent": analysis["intent"],
                                             "confidence": analysis.get("confidence", 0),
                                             "missing": analysis.get("missing", []),
-                                            "llm_used": analysis.get("llm_used", False)}))
+                                            "llm_used": analysis.get("llm_used", False),
+                                            "media_engine": media_engine},
+                                    error=media_error))
     db.commit()
     return {"ok": True, "conversation_id": conv.id, "message_id": msg.id,
             "draft_id": draft.id if draft else None, "intent": analysis["intent"],
-            "confidence": analysis.get("confidence", 0), "vendor_id": vendor.id if vendor else None}
+            "confidence": analysis.get("confidence", 0), "vendor_id": vendor.id if vendor else None,
+            "media_engine": media_engine}
 
 
 # ---------------------------------------------------------------------------
@@ -279,9 +329,27 @@ def ingest_message(db: Session, *, from_phone: str, wa_message_id: str | None, m
 class SimIn(BaseModel):
     from_phone: str
     text: str = ""
-    msg_type: str = "text"
+    msg_type: str = "text"                 # text | voice | image | document
+    media_b64: str = ""                    # base64 or data-URL media payload (simulated attachment)
+    mime: str = ""
     wa_message_id: str | None = None
     contact_name: str = ""
+
+
+def _decode_media(data_url: str) -> tuple[bytes, str]:
+    """Accept raw base64 or a data: URL; returns (bytes, mime)."""
+    raw = (data_url or "").strip()
+    mime = ""
+    if raw.startswith("data:"):
+        head, _, raw = raw.partition(",")
+        mime = head[5:].split(";")[0]
+    try:
+        blob = base64.b64decode(raw, validate=False)
+    except Exception:
+        raise HTTPException(400, "media_b64 is not valid base64")
+    if not blob:
+        raise HTTPException(400, "media_b64 decoded to empty payload")
+    return blob, mime
 
 
 @router.get("/account")
@@ -297,20 +365,115 @@ def templates(user: User = Depends(require_staff), db: Session = Depends(get_db)
 
 @router.post("/simulator/send")
 def simulator_send(body: SimIn, user: User = Depends(require_perm("whatsapp.manage")), db: Session = Depends(get_db)):
-    """Inject an inbound vendor message into the real ingestion pipeline."""
+    """Inject an inbound vendor message (text or media) into the real pipeline."""
+    media_bytes, mime = None, body.mime
+    if body.msg_type in ("voice", "audio", "image", "document") and body.media_b64:
+        media_bytes, mime = _decode_media(body.media_b64)
+        mime = mime or body.mime
     result = ingest_message(db, from_phone=body.from_phone, wa_message_id=body.wa_message_id,
-                            msg_type=body.msg_type, text=body.text)
+                            msg_type=body.msg_type, text=body.text, media_bytes=media_bytes,
+                            mime=mime, contact_name=body.contact_name)
     audit(db, user, "simulate", "whatsapp", result.get("conversation_id"),
-          f"Simulated inbound message from {body.from_phone}")
+          f"Simulated inbound {body.msg_type} message from {body.from_phone}")
     db.commit()
     return result
 
 
+class AccountIn(BaseModel):
+    mode: str | None = None               # SIMULATOR | CLOUD_API
+    phone_number_id: str | None = None
+    waba_id: str | None = None
+    access_token: str | None = None       # write-only; never returned
+
+
+@router.put("/account")
+def update_account(body: AccountIn, user: User = Depends(require_perm("whatsapp.manage")),
+                   db: Session = Depends(get_db)):
+    acc = get_account(db)
+    changes = []
+    if body.mode in ("SIMULATOR", "CLOUD_API") and body.mode != acc.mode:
+        acc.mode = body.mode
+        acc.status = "CONNECTED" if body.mode == "CLOUD_API" else "SIMULATED"
+        changes.append(f"mode->{body.mode}")
+    if body.phone_number_id is not None:
+        acc.phone_number_id = body.phone_number_id.strip()
+        changes.append("phone_number_id")
+    if body.waba_id is not None:
+        acc.waba_id = body.waba_id.strip()
+        changes.append("waba_id")
+    if body.access_token:
+        acc.access_token_enc = body.access_token.strip()
+        changes.append("access_token(set)")
+    audit(db, user, "update", "whatsapp_account", acc.id, f"WhatsApp account updated: {', '.join(changes) or 'no-op'}")
+    db.commit()
+    return serialize(acc, access_token_set=bool(acc.access_token_enc))
+
+
+@router.post("/account/test")
+def test_account(user: User = Depends(require_perm("whatsapp.manage")), db: Session = Depends(get_db)):
+    """Validate Cloud API credentials against Graph API (no message sent)."""
+    res = cloud.test_credentials(db)
+    audit(db, user, "test", "whatsapp_account", None, f"Cloud API credential test: {'ok' if res.get('ok') else 'failed'}")
+    db.commit()
+    return res
+
+
+@router.get("/webhook")
+def webhook_verify(request: Request, db: Session = Depends(get_db)):
+    """Meta webhook subscription handshake: echo hub.challenge when the verify
+    token matches."""
+    creds = cloud.effective_credentials(db)
+    params = request.query_params
+    if params.get("hub.mode") == "subscribe" and params.get("hub.verify_token") == creds["verify_token"]:
+        return int(params.get("hub.challenge") or 0) if (params.get("hub.challenge") or "").isdigit() \
+            else (params.get("hub.challenge") or "")
+    raise HTTPException(status_code=403, detail="Verification failed")
+
+
 @router.post("/webhook")
 async def webhook(request: Request, db: Session = Depends(get_db)):
-    """Cloud API webhook stub. Signature verification activates when mode=CLOUD_API
-    and credentials are configured. Disabled in SIMULATOR mode by design."""
-    acc = get_account(db)
-    if acc.mode != "CLOUD_API":
+    """WhatsApp Cloud API webhook: signature-verified inbound messages + statuses."""
+    raw = await request.body()
+    creds = cloud.effective_credentials(db)
+    if creds["mode"] != "CLOUD_API":
         raise HTTPException(status_code=503, detail="Webhook disabled in simulator mode")
-    raise HTTPException(status_code=501, detail="Cloud API not configured in this build")
+    if not cloud.verify_signature(raw, request.headers.get("X-Hub-Signature-256"), creds["app_secret"]):
+        raise HTTPException(status_code=403, detail="Invalid signature")
+    try:
+        payload = json.loads(raw or b"{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    events = cloud.parse_webhook_payload(payload)
+    results = []
+    for m in events["messages"]:
+        media_bytes = None
+        mime = m.get("mime") or ""
+        if m.get("media_id"):
+            try:
+                dl = cloud.download_media(db, m["media_id"])
+                media_bytes, mime = dl["bytes"], dl["mime"]
+            except cloud.CloudAPIError as e:
+                results.append({"wa_message_id": m["wa_message_id"], "error": f"media download failed: {e}"})
+        res = ingest_message(db, from_phone=m["from_phone"], wa_message_id=m["wa_message_id"] or None,
+                             msg_type=m["msg_type"], text=m["text"], media_bytes=media_bytes,
+                             mime=mime, contact_name=m.get("profile_name") or "")
+        results.append(res)
+    for s in events["statuses"]:
+        _apply_status(db, s)
+    if not events["messages"]:
+        db.commit()
+    return {"received": True, "processed": len(results), "statuses": len(events["statuses"])}
+
+
+def _apply_status(db: Session, s: dict) -> None:
+    """Mirror Cloud API delivery statuses onto the outbound message record."""
+    wa_id = s.get("wa_message_id")
+    if not wa_id:
+        return
+    msg = db.query(Message).filter(Message.wa_message_id == wa_id).first()
+    if not msg:
+        return
+    new_status = s.get("status") or ""
+    if new_status in ("SENT", "DELIVERED", "READ", "FAILED"):
+        msg.status = new_status
+        db.commit()

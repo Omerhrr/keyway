@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -10,7 +11,9 @@ from app.modules.identity_models import User
 from app.modules.conversations_models import (Conversation, Message, MessageAttachment,
                                               MessageProcessingAttempt, VendorIdentityMatch)
 from app.modules.vendors_models import Vendor, VendorContact
-from app.modules.whatsapp_models import MessageTemplate
+from app.modules.whatsapp_models import MessageTemplate, WhatsAppAccount
+
+log = logging.getLogger("keyway.conversations")
 
 router = APIRouter(prefix="/api/conversations", tags=["conversations"])
 
@@ -19,7 +22,11 @@ CONVERSATION_STATUSES = ["NEW", "OPEN", "PROCESSING", "WAITING_FOR_VENDOR",
 
 
 def send_outbound_text(db: Session, conversation_id: int | None, text: str, template_name: str | None = None) -> Message | None:
-    """Simulated outbound WhatsApp message (Cloud API switch later).
+    """Send an outbound WhatsApp reply.
+
+    CLOUD_API mode: attempts a real Graph API send (falls back to a recorded
+    SIMULATED/FAILED message so the pipeline never breaks mid-conversation).
+    SIMULATOR mode: records the message locally as before.
     Renders simple {{placeholder}} templates and records delivery status."""
     if not conversation_id:
         return None
@@ -31,9 +38,25 @@ def send_outbound_text(db: Session, conversation_id: int | None, text: str, temp
         tpl = db.query(MessageTemplate).filter(MessageTemplate.name == template_name).first()
         if tpl:
             body = tpl.body
+    wa_id = f"SIM-{utcnow().timestamp()}-{conversation_id}"
+    status = "SENT"
+    acc = db.query(WhatsAppAccount).first()
+    if acc and acc.mode == "CLOUD_API" and conv.contact_phone:
+        try:
+            from app.modules import whatsapp_cloud as cloud
+            sent = cloud.send_text(db, conv.contact_phone, body)
+            if sent.get("wa_message_id"):
+                wa_id = sent["wa_message_id"]
+        except Exception as e:  # CloudAPIError, network, unconfigured
+            status = "FAILED"
+            wa_id = f"SIM-{utcnow().timestamp()}-{conversation_id}"
+            try:
+                log.warning("Cloud API outbound failed (recorded locally): %s", e)
+            except Exception:
+                pass
     msg = Message(conversation_id=conversation_id, direction="OUT",
-                  wa_message_id=f"SIM-{utcnow().timestamp()}-{conversation_id}",
-                  msg_type="text", body_text=body, status="SENT")
+                  wa_message_id=wa_id,
+                  msg_type="text", body_text=body, status=status)
     db.add(msg)
     conv.last_message_at = utcnow()
     conv.last_message_preview = body[:150]

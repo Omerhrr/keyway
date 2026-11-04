@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+import csv
+import io
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db
@@ -152,3 +154,155 @@ def delete_alias(alias_id: int, user: User = Depends(require_perm("catalog.manag
     db.delete(a)
     db.commit()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Phase 6D: catalog import (CSV / XLSX) and export
+# ---------------------------------------------------------------------------
+
+IMPORT_TEMPLATE = [
+    ["sku", "name", "category", "aliases", "sell_price", "opening_stock", "reorder_level"],
+    ["ANK-BLU-01", "Ankara Gown - Blue", "Gowns", "blue gown|ankara blue", "12500", "10", "5"],
+]
+
+
+def _parse_upload(content: bytes, filename: str) -> list[dict]:
+    """Parse CSV or XLSX into a list of row dicts with normalized headers."""
+    name = (filename or "").lower()
+    rows: list[list] = []
+    if name.endswith((".xlsx", ".xlsm")):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        ws = wb.active
+        rows = [[("" if c is None else c) for c in row] for row in ws.iter_rows(values_only=True)]
+        wb.close()
+    else:
+        text = content.decode("utf-8-sig", errors="replace")
+        rows = list(csv.reader(io.StringIO(text)))
+    if not rows:
+        return []
+    headers = [str(h).strip().lower().replace(" ", "_") for h in rows[0]]
+    out = []
+    for r in rows[1:]:
+        if not any(str(c).strip() for c in r):
+            continue
+        row = {}
+        for i, h in enumerate(headers):
+            if h and i < len(r):
+                row[h] = r[i]
+        out.append(row)
+    return out
+
+
+def _to_int(v, default=0) -> int:
+    try:
+        return int(round(float(str(v).replace(",", "").replace("\u20a6", "").strip() or default)))
+    except (TypeError, ValueError):
+        return default
+
+
+@router.post("/import")
+async def import_catalog(vendor_id: int, file: UploadFile = File(...),
+                         user: User = Depends(require_perm("catalog.manage")),
+                         db: Session = Depends(get_db)):
+    """Bulk-import products from CSV/XLSX.
+
+    Columns: sku*, name*, category, aliases (| separated), sell_price (naira),
+    opening_stock, reorder_level. Existing SKUs are updated, new SKUs created;
+    aliases are added (never duplicated); opening stock seeds inventory.
+    """
+    from app.modules.vendors_models import Vendor
+    from app.modules.inventory_models import Warehouse
+    vendor = db.get(Vendor, vendor_id)
+    if not vendor:
+        raise HTTPException(404, "Vendor not found")
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 5MB)")
+    try:
+        rows = _parse_upload(content, file.filename or "")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(400, f"Could not parse file: {e}")
+    if not rows:
+        raise HTTPException(400, "No data rows found")
+
+    warehouse = db.query(Warehouse).order_by(Warehouse.id).first()
+    created = updated = alias_count = stock_rows = 0
+    errors: list[str] = []
+    for i, row in enumerate(rows, start=2):  # start=2: row 1 is the header
+        sku = str(row.get("sku") or row.get("sku_*") or "").strip()
+        name = str(row.get("name") or row.get("product") or "").strip()
+        if not sku and not name:
+            continue
+        if not sku:
+            errors.append(f"Row {i}: missing sku - skipped")
+            continue
+        if not name:
+            errors.append(f"Row {i}: missing name - skipped")
+            continue
+        sell = _to_int(row.get("sell_price") or row.get("price") or row.get("default_sell_price")) * 100
+        reorder = _to_int(row.get("reorder_level"), 5)
+        opening = _to_int(row.get("opening_stock") or row.get("qty") or row.get("stock"), 0)
+        category = str(row.get("category") or "").strip()
+        p = db.query(Product).filter(Product.vendor_id == vendor_id, Product.sku == sku).first()
+        if p:
+            p.name, p.category = name, category or p.category
+            p.default_sell_price_kobo = sell or p.default_sell_price_kobo
+            p.reorder_level = reorder
+            updated += 1
+        else:
+            p = Product(vendor_id=vendor_id, sku=sku, name=name, category=category,
+                        default_sell_price_kobo=sell, reorder_level=reorder, status="ACTIVE")
+            db.add(p)
+            db.flush()
+            created += 1
+        # aliases: pipe-separated, attached to the product for fuzzy matching
+        raw_aliases = str(row.get("aliases") or row.get("alias") or "")
+        existing = {a.alias.lower() for a in db.query(ProductAlias).filter(
+            ProductAlias.product_id == p.id).all()}
+        for al in [a.strip() for a in raw_aliases.replace(";", "|").split("|") if a.strip()]:
+            if al.lower() not in existing and al.lower() != name.lower():
+                db.add(ProductAlias(vendor_id=vendor_id, product_id=p.id, alias=al, weight=90))
+                existing.add(al.lower())
+                alias_count += 1
+        # opening stock (first warehouse, unvariant stock row)
+        if opening > 0 and warehouse:
+            bal = (db.query(InventoryBalance)
+                   .filter(InventoryBalance.product_id == p.id, InventoryBalance.variant_id == 0,
+                           InventoryBalance.warehouse_id == warehouse.id).first())
+            if bal:
+                bal.qty_physical = opening
+            else:
+                db.add(InventoryBalance(product_id=p.id, variant_id=0, warehouse_id=warehouse.id,
+                                        location_id=0, qty_physical=opening))
+            stock_rows += 1
+    db.commit()
+    audit(db, user, "import", "catalog", vendor_id,
+          f"Catalog import for {vendor.name}: {created} created, {updated} updated, "
+          f"{alias_count} aliases, {errors.__len__()} errors")
+    db.commit()
+    return {"created": created, "updated": updated, "aliases_added": alias_count,
+            "stock_rows": stock_rows, "errors": errors[:20]}
+
+
+@router.get("/export")
+def export_catalog(vendor_id: int = 0, user: User = Depends(require_staff),
+                   db: Session = Depends(get_db)):
+    """Export the catalog (optionally one vendor) as CSV."""
+    from urllib.parse import quote
+    import io as _io
+    q = db.query(Product)
+    if vendor_id:
+        q = q.filter(Product.vendor_id == vendor_id)
+    buf = _io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["sku", "name", "category", "aliases", "sell_price", "reorder_level", "status"])
+    for p in q.order_by(Product.vendor_id, Product.name).all():
+        aliases = "|".join(a.alias for a in db.query(ProductAlias).filter(ProductAlias.product_id == p.id).all())
+        w.writerow([p.sku, p.name, p.category, aliases,
+                    (p.default_sell_price_kobo or 0) / 100, p.reorder_level, p.status])
+    buf.seek(0)
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={quote('keyway-catalog.csv')}"})

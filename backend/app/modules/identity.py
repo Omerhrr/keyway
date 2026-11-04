@@ -151,8 +151,9 @@ def list_roles(user: User = Depends(get_current_user), db: Session = Depends(get
     for m in matrix:
         role_perms.setdefault(m.role_id, []).append(perm_by_id.get(m.permission_id, ""))
     return {
-        "roles": serialize_list(roles, fields=["id", "name", "description", "is_system"],
-                                permissions=sorted([c for c in role_perms.get(r.id, []) if c]) if roles else []),
+        "roles": [serialize(ro, fields=["id", "name", "description", "is_system"],
+                            permissions=sorted([c for c in role_perms.get(ro.id, []) if c]))
+                  for ro in roles],
         "permission_catalog": serialize_list(perms),
         "role_permissions": {str(r.id): sorted([c for c in role_perms.get(r.id, []) if c]) for r in roles},
     }

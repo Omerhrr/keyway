@@ -38,6 +38,18 @@ interface ExtractBody {
   catalog?: { product_id: number; sku: string; name: string }[];
 }
 
+interface TranscribeBody {
+  file_base64: string;
+  mime?: string;
+}
+
+interface VisionBody {
+  image_base64: string;   // raw base64 (no data: prefix) or full data URL
+  mime?: string;
+  question?: string;
+  catalog?: { product_id: number; sku: string; name: string }[];
+}
+
 let zaiPromise: Promise<any> | null = null;
 async function getZAI() {
   if (!zaiPromise) zaiPromise = ZAI.create();
@@ -88,6 +100,69 @@ async function extract(body: ExtractBody) {
   };
 }
 
+async function transcribe(body: TranscribeBody) {
+  const raw = (body.file_base64 || '').replace(/^data:[^,]*,/, '');
+  if (!raw) throw new Error('file_base64 is required');
+  const zai = await getZAI();
+  const result = await withTimeout(
+    zai.audio.asr.create({ file_base64: raw }),
+    40000,
+  );
+  const text = (result?.text || '').trim();
+  if (!text) throw new Error('Empty transcription');
+  return { text, engine: 'zai-asr' };
+}
+
+const VISION_PROMPT = `You are the product-vision assistant for Keyway, a Nigerian WhatsApp-first logistics platform.
+Look at the image from a vendor (likely a product photo or a handwritten/scanned order list).
+Respond with ONLY valid JSON, no markdown:
+{
+  "description": string (concise description of what is shown),
+  "items": [{ "name": string, "quantity": number|null }],
+  "suggested_product_query": string|null (best catalog search phrase),
+  "confidence": number 0-1
+}
+Only describe what is actually visible; never invent prices or brands.`;
+
+async function vision(body: VisionBody) {
+  let raw = (body.image_base64 || '').replace(/^data:[^,]*,/, '');
+  if (!raw) throw new Error('image_base64 is required');
+  if (raw.length > 8_000_000) throw new Error('Image too large (max ~6MB)');
+  const mime = body.mime || 'image/jpeg';
+  const catalog = (body.catalog || []).slice(0, 80);
+  const catalogLine = catalog.length
+    ? `\nVendor catalog to match against: ${catalog.map((c) => c.name).join('; ')}`
+    : '';
+  const question = (body.question || '').slice(0, 400);
+  const zai = await getZAI();
+  const completion = await withTimeout(
+    zai.chat.completions.createVision({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: VISION_PROMPT + catalogLine + (question ? `\nExtra instruction: ${question}` : '') },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${raw}` } },
+          ],
+        },
+      ],
+      thinking: { type: 'disabled' },
+    }),
+    85000,
+  );
+  const rawText = completion?.choices?.[0]?.message?.content || '';
+  const match = rawText.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('No JSON in vision response');
+  const parsed = JSON.parse(match[0]);
+  return {
+    description: String(parsed.description || '').slice(0, 600),
+    items: Array.isArray(parsed.items) ? parsed.items.slice(0, 20) : [],
+    suggested_product_query: parsed.suggested_product_query ?? null,
+    confidence: Math.min(Math.max(Number(parsed.confidence) || 0.4, 0), 0.99),
+    engine: 'glm-vision',
+  };
+}
+
 Bun.serve({
   port: PORT,
   async fetch(req) {
@@ -99,6 +174,16 @@ Bun.serve({
       if (url.pathname === '/v1/extract' && req.method === 'POST') {
         const body = (await req.json()) as ExtractBody;
         const result = await extract(body);
+        return Response.json(result);
+      }
+      if (url.pathname === '/v1/transcribe' && req.method === 'POST') {
+        const body = (await req.json()) as TranscribeBody;
+        const result = await transcribe(body);
+        return Response.json(result);
+      }
+      if (url.pathname === '/v1/vision' && req.method === 'POST') {
+        const body = (await req.json()) as VisionBody;
+        const result = await vision(body);
         return Response.json(result);
       }
       return new Response('Not found', { status: 404 });

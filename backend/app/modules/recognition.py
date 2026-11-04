@@ -6,6 +6,7 @@ PRD boundaries honored here:
 - Never fabricate prices or customer details; extracted values carry provenance.
 """
 import re
+import base64
 import httpx
 from rapidfuzz import fuzz
 from app.core.config import settings
@@ -206,6 +207,83 @@ def llm_extract(text: str, catalog: list[dict]) -> dict | None:
     except Exception:
         return None
     return None
+
+
+# ---------------------------------------------------------------------------
+# Media understanding (Phase 6C): voice notes -> text, images -> description.
+# Same assistive boundary as text extraction: transcription output is treated
+# as message text and flows through the identical rules+LLM pipeline.
+# ---------------------------------------------------------------------------
+
+def llm_transcribe(file_b64: str, mime: str = "") -> str | None:
+    """Speech-to-text via the LLM mini-service. Returns transcript or None."""
+    if not settings.LLM_ENABLED:
+        return None
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            r = client.post(f"{settings.LLM_SERVICE_URL}/v1/transcribe",
+                            json={"file_base64": file_b64, "mime": mime})
+            if r.status_code == 200:
+                return (r.json() or {}).get("text") or None
+    except Exception:
+        return None
+    return None
+
+
+def llm_vision(image_b64: str, mime: str = "image/jpeg", question: str = "", catalog: list[dict] | None = None) -> dict | None:
+    """Vision extraction via the LLM mini-service. Returns dict or None."""
+    if not settings.LLM_ENABLED:
+        return None
+    try:
+        with httpx.Client(timeout=100.0) as client:
+            r = client.post(f"{settings.LLM_SERVICE_URL}/v1/vision",
+                            json={"image_base64": image_b64, "mime": mime,
+                                  "question": question, "catalog": catalog or []})
+            if r.status_code == 200:
+                return r.json()
+    except Exception:
+        return None
+    return None
+
+
+def media_to_text(db, vendor, msg_type: str, media_bytes: bytes, mime: str = "",
+                  caption: str = "") -> dict:
+    """Convert an inbound media payload into message text for the pipeline.
+
+    voice/audio -> ASR transcript; image -> caption + vision description with a
+    catalog-aware product hint; document -> caption only (contents not parsed).
+    Returns {"text": str, "engine": str, "detail": str}.
+    """
+    mime = (mime or "").lower()
+    engine, detail, extra = "none", "", ""
+    if msg_type in ("voice", "audio"):
+        b64 = base64.b64encode(media_bytes).decode()
+        transcript = llm_transcribe(b64, mime)
+        if transcript:
+            engine, extra = "asr", transcript.strip()
+            detail = f"Transcribed {len(media_bytes)} bytes via ASR"
+        else:
+            detail = "ASR unavailable or failed"
+    elif msg_type == "image":
+        catalog = []
+        if vendor:
+            from app.modules.catalog_models import Product
+            catalog = [{"product_id": p.id, "sku": p.sku, "name": p.name}
+                       for p in db.query(Product)
+                       .filter(Product.vendor_id == vendor.id, Product.status == "ACTIVE").all()]
+        b64 = base64.b64encode(media_bytes).decode()
+        vision = llm_vision(b64, mime or "image/jpeg", catalog=catalog)
+        if vision:
+            engine = "vision"
+            desc = (vision.get("description") or "").strip()
+            extra = desc
+            detail = f"Vision: {vision.get('suggested_product_query') or desc[:60]}"
+        else:
+            detail = "Vision unavailable or failed"
+    if msg_type == "document":
+        engine, detail = "caption-only", "Document contents are not parsed; caption used"
+    parts = [p for p in (caption or "", extra or "") if p]
+    return {"text": " \n".join(parts), "engine": engine, "detail": detail}
 
 
 def analyze_message(db, vendor, text: str) -> dict:

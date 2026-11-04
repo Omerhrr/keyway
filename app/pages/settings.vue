@@ -64,6 +64,58 @@ async function toggleUser(u: any) {
   await api(`/users/${u.id}`, { method: 'PATCH', body: { is_active: !u.is_active } })
   await load()
 }
+
+// ---- WhatsApp Cloud API (Phase 6A) ----
+const waForm = reactive({ mode: 'SIMULATOR', phone_number_id: '', waba_id: '', access_token: '' })
+const waSaving = ref(false)
+const waTesting = ref(false)
+const tokenSet = ref(false)
+watch(account, (a) => {
+  if (!a) return
+  waForm.mode = a.mode || 'SIMULATOR'
+  waForm.phone_number_id = a.phone_number_id || ''
+  waForm.waba_id = a.waba_id || ''
+  tokenSet.value = !!a.access_token_set
+})
+async function saveWa() {
+  waSaving.value = true
+  try {
+    account.value = await api('/whatsapp/account', {
+      method: 'PUT',
+      body: {
+        mode: waForm.mode,
+        phone_number_id: waForm.phone_number_id,
+        waba_id: waForm.waba_id,
+        access_token: waForm.access_token || undefined,
+      },
+    })
+    waForm.access_token = ''
+    useToast().add({ title: 'WhatsApp channel updated', color: 'success' })
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { waSaving.value = false }
+}
+async function testWa() {
+  waTesting.value = true
+  try {
+    const r = await api('/whatsapp/account/test', { method: 'POST' })
+    useToast().add({ title: r.ok ? 'Credentials valid' : 'Credential check failed',
+                     description: r.detail, color: r.ok ? 'success' : 'error' })
+    await load()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { waTesting.value = false }
+}
+const webhookUrl = computed(() => {
+  if (!import.meta.client) return '/api/whatsapp/webhook'
+  return `${window.location.origin}/api/whatsapp/webhook`
+})
+function copyWebhook() {
+  if (import.meta.client) {
+    navigator.clipboard?.writeText(webhookUrl.value)
+    useToast().add({ title: 'Webhook URL copied', color: 'success' })
+  }
+}
 </script>
 
 <template>
@@ -138,16 +190,41 @@ async function toggleUser(u: any) {
     <template v-else-if="tab === 'whatsapp'">
       <div class="grid lg:grid-cols-2 gap-5">
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5" v-if="account">
-          <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-2">Channel account</h3>
-          <div class="space-y-2 text-sm">
-            <div class="flex justify-between"><span class="text-zinc-500">Display name</span><span class="font-medium">{{ account.display_name }}</span></div>
-            <div class="flex justify-between"><span class="text-zinc-500">Mode</span>
-              <UBadge :color="account.mode === 'SIMULATOR' ? 'warning' : 'success'" variant="subtle" size="xs">{{ account.mode }}</UBadge>
-            </div>
-            <div class="flex justify-between"><span class="text-zinc-500">Status</span><StatusBadge :status="account.status" /></div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-zinc-700 dark:text-zinc-200">Cloud API connection</h3>
+            <UBadge :color="waForm.mode === 'SIMULATOR' ? 'warning' : (account.status === 'CONNECTED' ? 'success' : 'error')" variant="subtle" size="xs">
+              {{ waForm.mode === 'SIMULATOR' ? 'Simulator mode' : account.status }}
+            </UBadge>
           </div>
-          <UAlert class="mt-4" color="info" variant="subtle" icon="i-lucide-info"
-                  title="Simulator mode" description="Inbound vendor messages enter through the inbox simulator and flow through the exact pipeline a WhatsApp Cloud API webhook would drive. The webhook endpoint is stubbed and ready for credentials." />
+          <div class="space-y-3 text-sm">
+            <UFormField label="Mode" description="Simulator keeps the demo inbox flow; Cloud API serves real WhatsApp traffic.">
+              <USelect v-model="waForm.mode" class="w-full"
+                       :items="[{ label: 'Simulator (no Meta credentials needed)', value: 'SIMULATOR' }, { label: 'WhatsApp Cloud API (production)', value: 'CLOUD_API' }]" />
+            </UFormField>
+            <UFormField label="Phone number ID" hint="Meta → WhatsApp → API Setup">
+              <UInput v-model="waForm.phone_number_id" class="w-full" placeholder="e.g. 123456789012345" />
+            </UFormField>
+            <UFormField label="WhatsApp Business Account ID">
+              <UInput v-model="waForm.waba_id" class="w-full" placeholder="e.g. 987654321098765" />
+            </UFormField>
+            <UFormField :label="tokenSet ? 'Access token (replace)' : 'Access token'"
+                        :hint="tokenSet ? 'A token is stored. Leave blank to keep it.' : 'Permanent system-user token with whatsapp_business_messaging'">
+              <UInput v-model="waForm.access_token" type="password" class="w-full" :placeholder="tokenSet ? '•••••••• (stored)' : 'EAAG...'" />
+            </UFormField>
+            <div class="flex gap-2 pt-1">
+              <UButton :loading="waSaving" @click="saveWa" icon="i-lucide-save">Save</UButton>
+              <UButton :loading="waTesting" variant="soft" color="neutral" @click="testWa" icon="i-lucide-plug-zap">Test connection</UButton>
+            </div>
+          </div>
+          <USeparator class="my-4" />
+          <div>
+            <p class="text-xs font-medium text-zinc-500 mb-1">Webhook callback URL (paste into Meta App dashboard)</p>
+            <div class="flex items-center gap-2">
+              <code class="text-xs bg-zinc-100 dark:bg-zinc-800 rounded px-2 py-1.5 flex-1 truncate">{{ webhookUrl }}</code>
+              <UButton size="xs" variant="ghost" icon="i-lucide-copy" @click="copyWebhook" />
+            </div>
+            <p class="text-xs text-zinc-400 mt-1.5">Verify token is set server-side via <code>KEYWAY_WHATSAPP_VERIFY_TOKEN</code>. Message signing is enforced with <code>KEYWAY_WHATSAPP_APP_SECRET</code> when configured.</p>
+          </div>
         </div>
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
           <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-2">Message templates</h3>

@@ -14,6 +14,17 @@ class Settings(BaseSettings):
     LLM_SERVICE_URL: str = "http://127.0.0.1:8001"
     LLM_ENABLED: bool = True
     CORS_ORIGINS: str = "*"
+    # ---- WhatsApp Cloud API (Phase 6A) ----
+    # Effective mode lives on the WhatsAppAccount DB row (editable in Settings UI);
+    # these env values seed/override credentials for headless deployments.
+    # Simulated vendor messages remain available regardless of mode.
+    WHATSAPP_MODE: str = "SIMULATOR"            # SIMULATOR | CLOUD_API
+    WHATSAPP_ACCESS_TOKEN: str = ""             # permanent/long-lived system-user token
+    WHATSAPP_PHONE_NUMBER_ID: str = ""
+    WHATSAPP_WABA_ID: str = ""
+    WHATSAPP_APP_SECRET: str = ""               # for X-Hub-Signature-256 verification
+    WHATSAPP_VERIFY_TOKEN: str = "keyway-verify"
+    WHATSAPP_API_VERSION: str = "v21.0"
 
     class Config:
         env_file = str(BASE_DIR / ".env")
