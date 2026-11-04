@@ -1,0 +1,21 @@
+{
+  "name": "keyway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --port 3000 2>&1 | tee dev.log",
+    "build": "nuxt build",
+    "preview": "nuxt preview --port 3000",
+    "postinstall": "nuxt prepare",
+    "db:push": "echo '[keyway] database schema is managed by the FastAPI backend (SQLAlchemy create_all on boot)'"
+  },
+  "dependencies": {
+    "@nuxt/ui": "^3.0.0",
+    "nuxt": "^4.0.0"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.0",
+    "typescript": "^5"
+  }
+}

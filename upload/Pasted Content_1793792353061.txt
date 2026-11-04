@@ -1,0 +1,1318 @@
+{
+  "project": {
+    "name": "Keyway",
+    "type": "WhatsApp-first logistics, inventory, order fulfilment, COD management and financial operations platform",
+    "vision": "Build a complete operational and financial management system for logistics businesses that manage inventory, orders, fulfilment, deliveries, cash collection and vendor settlements on behalf of ecommerce businesses.",
+    "core_principles": [
+      "WhatsApp-first vendor experience",
+      "Automatic vendor and order recognition",
+      "Minimal manual data entry",
+      "Simple interfaces for non-technical users",
+      "Centralized logistics operations",
+      "Accurate inventory ownership and tracking",
+      "End-to-end order traceability",
+      "Financial accuracy and immutable accounting records",
+      "Human approval for ambiguous or high-impact actions",
+      "Vendor-level data isolation"
+    ],
+    "business_model": {
+      "operator": "A logistics company operating warehouses and delivery services",
+      "customers": "Ecommerce businesses importing and storing products with the logistics company",
+      "vendors": "Independent ecommerce businesses whose products and customer orders are managed by Keyway",
+      "revenue_sources": [
+        "Storage charges",
+        "Order processing fees",
+        "Local delivery charges",
+        "Interstate dispatch charges",
+        "COD collection fees",
+        "Other agreed logistics service charges"
+      ],
+      "primary_payment_model": "Cash on delivery",
+      "currency": "NGN"
+    }
+  },
+  "product_experience": {
+    "philosophy": "Keyway should make complex logistics operations feel simple. Users should see only the information and actions relevant to their responsibilities.",
+    "experience_goals": [
+      "A vendor can submit an order through WhatsApp without learning a new application.",
+      "Keyway automatically identifies the vendor using the sender's registered WhatsApp number.",
+      "Keyway understands the order information and prepares a structured order.",
+      "The system asks only for information that is genuinely missing.",
+      "Staff can process orders from one unified workspace.",
+      "Every important operation has a clear status and next action.",
+      "Financial information is understandable without accounting expertise.",
+      "The system works comfortably on mobile devices and desktop computers."
+    ],
+    "interface_requirements": {
+      "responsive_design": true,
+      "mobile_first": true,
+      "simple_navigation": true,
+      "role_based_dashboards": true,
+      "global_search": true,
+      "quick_actions": true,
+      "clear_status_indicators": true,
+      "bulk_actions": true,
+      "contextual_help": true,
+      "confirmation_for_sensitive_actions": true,
+      "empty_state_guidance": true,
+      "avoid_unnecessary_data_entry": true
+    },
+    "user_roles": [
+      "Business Owner",
+      "Administrator",
+      "Operations Manager",
+      "Warehouse Manager",
+      "Warehouse Staff",
+      "Order Processing Staff",
+      "Customer Confirmation Agent",
+      "Dispatcher",
+      "Rider",
+      "Finance Manager",
+      "Accountant",
+      "Auditor",
+      "Read Only Staff",
+      "Vendor"
+    ]
+  },
+  "modules": {
+    "dashboard": {
+      "description": "A centralized overview of business operations and financial performance.",
+      "widgets": [
+        "Orders received today",
+        "Orders awaiting processing",
+        "Orders awaiting customer confirmation",
+        "Orders ready for dispatch",
+        "Orders currently in transit",
+        "Successfully delivered orders",
+        "Failed delivery orders",
+        "Pending COD collections",
+        "Cash collected today",
+        "Vendor settlements pending",
+        "Total inventory value",
+        "Low stock alerts",
+        "Warehouse activity",
+        "Outstanding vendor payables",
+        "Revenue and logistics charges",
+        "Operational exceptions"
+      ],
+      "features": [
+        "Date filters",
+        "Warehouse filters",
+        "Vendor filters",
+        "Staff performance filters",
+        "Quick navigation to underlying records",
+        "Role-specific dashboard layouts"
+      ]
+    },
+    "vendor_management": {
+      "description": "Manage ecommerce businesses that store products and fulfil customer orders through the logistics operator.",
+      "features": [
+        "Vendor registration",
+        "Vendor business profiles",
+        "Vendor contact information",
+        "Multiple authorized contacts",
+        "Registered WhatsApp phone numbers",
+        "Multiple WhatsApp numbers per vendor",
+        "Vendor account verification",
+        "Vendor-specific pricing agreements",
+        "Vendor-specific logistics charges",
+        "Vendor inventory ownership",
+        "Vendor order history",
+        "Vendor financial statements",
+        "Vendor settlement preferences",
+        "Vendor account status",
+        "Vendor communication history",
+        "Vendor documents and agreements"
+      ],
+      "vendor_identity_recognition": {
+        "objective": "Automatically and reliably determine which registered vendor is sending a message or submitting an order.",
+        "recognition_methods": [
+          {
+            "method": "Registered WhatsApp phone number",
+            "priority": 1,
+            "description": "Match the WhatsApp sender's verified phone number against registered vendor contacts."
+          },
+          {
+            "method": "Linked WhatsApp business account",
+            "priority": 2,
+            "description": "Match a previously linked and verified WhatsApp identity."
+          },
+          {
+            "method": "Vendor reference or code",
+            "priority": 3,
+            "description": "Recognize an explicitly supplied vendor code when available."
+          },
+          {
+            "method": "Staff-assisted identification",
+            "priority": 4,
+            "description": "Allow authorized staff to assign an unidentified sender to a vendor after verification."
+          }
+        ],
+        "recognition_rules": [
+          "A verified phone number should automatically identify its associated vendor.",
+          "A vendor may register multiple authorized phone numbers.",
+          "A phone number must not silently switch between vendor accounts.",
+          "Unknown senders must enter an unassigned inbox.",
+          "If a sender matches multiple possible identities, request clarification or staff review.",
+          "Never assume that a customer phone number is the vendor's identity.",
+          "Keep a record of the identity and verification method used for every imported message."
+        ]
+      },
+      "vendor_portal": {
+        "description": "An optional self-service interface for vendors who prefer using a web application.",
+        "features": [
+          "View inventory",
+          "Submit orders",
+          "Track order progress",
+          "View delivered and failed orders",
+          "View COD collections",
+          "View outstanding balances",
+          "View settlement history",
+          "Download statements",
+          "Manage authorized contacts",
+          "View notifications",
+          "Update permitted business information"
+        ]
+      }
+    },
+    "whatsapp_integration": {
+      "priority": "CORE_PRODUCT_FEATURE",
+      "description": "WhatsApp is the primary vendor-facing order intake and communication channel.",
+      "integration": {
+        "preferred_provider": "WhatsApp Business Platform / WhatsApp Cloud API",
+        "architecture": "Webhook-driven messaging integration",
+        "requirements": [
+          "Receive inbound messages",
+          "Send outbound messages",
+          "Receive delivery and read status events where supported",
+          "Download and process supported attachments",
+          "Handle message retries",
+          "Verify webhook signatures",
+          "Maintain message history",
+          "Support approved message templates where required"
+        ]
+      },
+      "supported_message_types": [
+        "Plain text",
+        "Structured order text",
+        "Images",
+        "Product photographs",
+        "Order screenshots",
+        "PDF documents",
+        "Voice notes",
+        "Audio messages",
+        "Location sharing",
+        "Contact cards",
+        "Forwarded messages",
+        "Document attachments"
+      ],
+      "vendor_order_recognition": {
+        "description": "Automatically recognize the vendor and extract order information from natural WhatsApp messages.",
+        "pipeline": [
+          "Receive inbound WhatsApp event",
+          "Validate webhook authenticity",
+          "Check message idempotency",
+          "Identify the sender phone number",
+          "Match sender to registered vendor",
+          "Retrieve the vendor's active account and applicable configuration",
+          "Determine message intent",
+          "Determine whether the message contains a new order or references an existing order",
+          "Extract candidate order information",
+          "Resolve product references against the vendor's inventory",
+          "Validate extracted information",
+          "Detect possible duplicates",
+          "Calculate an extraction confidence score",
+          "Create an order draft or route the message for review",
+          "Ask for missing information where necessary",
+          "Obtain required confirmation",
+          "Create the operational order"
+        ],
+        "intent_classification": [
+          "NEW_ORDER",
+          "ORDER_UPDATE",
+          "ORDER_CANCELLATION_REQUEST",
+          "ORDER_STATUS_ENQUIRY",
+          "INVENTORY_ENQUIRY",
+          "PAYMENT_ENQUIRY",
+          "SETTLEMENT_ENQUIRY",
+          "GENERAL_MESSAGE",
+          "UNKNOWN_INTENT"
+        ],
+        "extracted_fields": [
+          "Vendor identity",
+          "Customer name",
+          "Customer phone number",
+          "Alternative customer phone number",
+          "Product name",
+          "Product SKU",
+          "Product variant",
+          "Quantity",
+          "Selling price",
+          "Customer delivery address",
+          "State",
+          "City",
+          "Area",
+          "Landmark",
+          "Shared GPS location",
+          "Payment method",
+          "Delivery instructions",
+          "Vendor order reference",
+          "Special instructions"
+        ],
+        "product_recognition": {
+          "description": "Resolve informal product descriptions into the correct inventory items.",
+          "matching_methods": [
+            "Exact SKU match",
+            "Exact product name",
+            "Vendor-specific product alias",
+            "Product variant matching",
+            "Fuzzy text matching",
+            "Image-assisted identification where supported",
+            "Staff-assisted matching"
+          ],
+          "rules": [
+            "Product matching must be restricted to the identified vendor's inventory.",
+            "Never select a product from another vendor's inventory.",
+            "If several products match, request clarification.",
+            "Do not assume a product variant when the message is ambiguous.",
+            "Check stock before accepting an order.",
+            "Do not invent product prices."
+          ]
+        },
+        "order_recognition_examples": [
+          {
+            "incoming_message": "Send 2 black sneakers size 42 to Musa, 08012345678, Kaduna.",
+            "expected_behavior": "Identify the vendor, find the matching product and variant, extract quantity and customer information, and prepare an order draft."
+          },
+          {
+            "incoming_message": "Another order. Amina, 08098765432, Abuja. One blender. 45000.",
+            "expected_behavior": "Recognize a new order from the existing vendor conversation, identify the blender against that vendor's inventory, and prepare an order draft."
+          },
+          {
+            "incoming_message": "Change the last order to 3 pieces.",
+            "expected_behavior": "Identify the referenced order from conversation context, show the proposed quantity change, validate stock and require authorization before updating."
+          },
+          {
+            "incoming_message": "Where is order KW-1024?",
+            "expected_behavior": "Recognize an order status enquiry and retrieve the matching order if the sender is authorized to access it."
+          }
+        ],
+        "confidence_and_review": {
+          "high_confidence": "Automatically prepare a draft with extracted fields populated. Only auto-create an order if the vendor has explicitly enabled this behavior and all mandatory validations pass.",
+          "medium_confidence": "Prepare a draft and request staff review or vendor clarification.",
+          "low_confidence": "Do not create an order. Ask a clear question or route to the unassigned inbox.",
+          "mandatory_rules": [
+            "Never fabricate missing customer details.",
+            "Never silently guess product variants.",
+            "Never silently modify an existing order.",
+            "Never autonomously approve ambiguous cancellations.",
+            "Never treat AI-extracted amounts as verified financial transactions.",
+            "Preserve the original message and extracted field provenance.",
+            "Allow staff to correct extracted fields."
+          ]
+        }
+      },
+      "conversation_management": {
+        "description": "A unified WhatsApp inbox for all vendor conversations.",
+        "features": [
+          "Conversation list",
+          "Vendor identification",
+          "Vendor profile preview",
+          "Unread messages",
+          "Message search",
+          "Conversation assignment",
+          "Staff ownership",
+          "Conversation labels",
+          "Attachments preview",
+          "Order drafts associated with conversations",
+          "Order history associated with conversations",
+          "Quick replies",
+          "Internal staff notes",
+          "Conversation timeline",
+          "Unassigned sender queue",
+          "Failed processing queue"
+        ],
+        "conversation_statuses": [
+          "NEW",
+          "OPEN",
+          "PROCESSING",
+          "WAITING_FOR_VENDOR",
+          "WAITING_FOR_STAFF",
+          "RESOLVED",
+          "ARCHIVED"
+        ],
+        "important_rule": "A conversation is not an order. One conversation may contain multiple orders, order updates, questions and cancellations."
+      },
+      "vendor_communication": {
+        "outbound_notifications": [
+          "Order received",
+          "Order information incomplete",
+          "Order draft ready for confirmation",
+          "Order successfully registered",
+          "Product unavailable",
+          "Customer confirmation completed",
+          "Order dispatched",
+          "Order delivered",
+          "Delivery failed",
+          "COD collected",
+          "Vendor settlement processed",
+          "General account notifications"
+        ],
+        "communication_features": [
+          "Pre-approved message templates",
+          "Personalized messages",
+          "Order reference insertion",
+          "Delivery status updates",
+          "Vendor-specific communication preferences",
+          "Message delivery tracking",
+          "Retry handling",
+          "Communication audit history"
+        ]
+      },
+      "fallback_channels": [
+        "Manual staff order entry",
+        "Vendor portal",
+        "CSV import",
+        "Excel import",
+        "REST API",
+        "Future ecommerce integrations"
+      ]
+    },
+    "order_intake": {
+      "description": "A universal intake engine that receives orders from every supported channel and converts them into one standardized order format.",
+      "channels": [
+        "WhatsApp",
+        "Vendor portal",
+        "Staff-assisted entry",
+        "CSV import",
+        "Excel import",
+        "REST API",
+        "Future ecommerce integrations"
+      ],
+      "standard_order_schema": [
+        "Order reference",
+        "Vendor",
+        "Customer",
+        "Products",
+        "Quantities",
+        "Selling prices",
+        "Delivery destination",
+        "Payment method",
+        "Order source",
+        "Source message reference",
+        "Order instructions",
+        "Created by",
+        "Creation timestamp"
+      ],
+      "features": [
+        "Order draft creation",
+        "Field validation",
+        "Product matching",
+        "Inventory availability validation",
+        "Duplicate detection",
+        "Vendor-specific rules",
+        "Order confirmation",
+        "Order reference generation",
+        "Order source traceability"
+      ],
+      "duplicate_detection": {
+        "signals": [
+          "WhatsApp message ID",
+          "Vendor ID",
+          "Vendor order reference",
+          "Customer phone",
+          "Product and variant",
+          "Quantity",
+          "Order creation time",
+          "Existing order similarity"
+        ],
+        "behavior": "Flag probable duplicates for review without automatically discarding legitimate repeat orders."
+      }
+    },
+    "inventory_and_warehouse": {
+      "description": "Track all physical stock held by the logistics operator while preserving ownership by individual vendors.",
+      "features": [
+        "Multiple warehouse support",
+        "Warehouse locations",
+        "Vendor-owned inventory",
+        "Product catalog",
+        "SKU management",
+        "Product variants",
+        "Barcode support",
+        "Stock receiving",
+        "Stock transfers",
+        "Stock adjustments",
+        "Stock reservations",
+        "Order-based stock deductions",
+        "Damaged stock tracking",
+        "Missing stock reporting",
+        "Returned stock processing",
+        "Low stock alerts",
+        "Stock movement history",
+        "Physical stocktaking",
+        "Inventory valuation"
+      ],
+      "stock_receiving_workflow": [
+        "Create inbound stock record",
+        "Identify vendor",
+        "Identify products",
+        "Record quantities",
+        "Record shipment or batch reference",
+        "Assign warehouse and storage location",
+        "Inspect received products",
+        "Record discrepancies",
+        "Confirm stock receipt",
+        "Update available inventory"
+      ],
+      "inventory_rules": [
+        "Every inventory item must belong to a vendor.",
+        "A vendor must not access another vendor's inventory.",
+        "Inventory movements must be auditable.",
+        "Available stock must account for active reservations.",
+        "Stock must not become negative through ordinary order processing.",
+        "Failed deliveries and returns must follow explicit restocking rules.",
+        "Stock adjustments require authorization and a recorded reason."
+      ],
+      "inventory_quantities": [
+        "Physical quantity",
+        "Reserved quantity",
+        "Available quantity",
+        "Damaged quantity",
+        "In-transit quantity"
+      ]
+    },
+    "order_management": {
+      "description": "Manage the complete lifecycle of every customer order.",
+      "features": [
+        "Unique order references",
+        "Order details",
+        "Customer details",
+        "Product line items",
+        "Vendor ownership",
+        "Order source",
+        "Order history",
+        "Staff assignment",
+        "Order notes",
+        "Order edits",
+        "Order cancellation",
+        "Order search",
+        "Order filters",
+        "Bulk processing",
+        "Order activity timeline"
+      ],
+      "order_statuses": [
+        "DRAFT",
+        "PENDING_REVIEW",
+        "AWAITING_INFORMATION",
+        "PENDING_VENDOR_CONFIRMATION",
+        "CONFIRMED",
+        "PENDING_CUSTOMER_CONFIRMATION",
+        "CUSTOMER_CONFIRMED",
+        "PROCESSING",
+        "READY_FOR_DISPATCH",
+        "DISPATCHED",
+        "IN_TRANSIT",
+        "DELIVERED",
+        "DELIVERY_FAILED",
+        "RETURN_REQUESTED",
+        "RETURN_IN_TRANSIT",
+        "RETURNED_TO_WAREHOUSE",
+        "CANCELLED"
+      ],
+      "order_rules": [
+        "Order status and payment status must be separate.",
+        "Order changes must be recorded in an audit history.",
+        "Order cancellation must trigger the appropriate inventory reservation release.",
+        "Order edits affecting stock must recalculate reservations.",
+        "An order cannot be marked delivered solely because a rider or staff member says so without an authorized delivery confirmation event.",
+        "Every order must remain linked to its vendor."
+      ]
+    },
+    "customer_confirmation": {
+      "description": "Confirm customer availability, delivery address, product, quantity and payment expectations before dispatch.",
+      "features": [
+        "Customer call assignment",
+        "Call attempt tracking",
+        "Call notes",
+        "Confirmation outcome",
+        "Address verification",
+        "Location verification",
+        "Customer availability",
+        "Alternative phone number",
+        "Rescheduling",
+        "Customer rejection",
+        "Confirmation history"
+      ],
+      "confirmation_statuses": [
+        "NOT_STARTED",
+        "CALL_ATTEMPTED",
+        "NO_ANSWER",
+        "CUSTOMER_CONFIRMED",
+        "CUSTOMER_REQUESTED_RESCHEDULE",
+        "ADDRESS_NEEDS_CORRECTION",
+        "CUSTOMER_REJECTED",
+        "INVALID_PHONE_NUMBER"
+      ],
+      "rules": [
+        "Do not dispatch orders that require customer confirmation until confirmation is completed.",
+        "Allow authorized exceptions with recorded reasons.",
+        "Record every confirmation attempt.",
+        "Make failed confirmation orders visible in a dedicated queue."
+      ]
+    },
+    "delivery_and_dispatch": {
+      "description": "Manage local delivery operations and third-party interstate dispatch.",
+      "delivery_modes": [
+        "In-house rider",
+        "Local third-party delivery",
+        "Interstate transport company",
+        "Waybill dispatch"
+      ],
+      "features": [
+        "Delivery zone configuration",
+        "Local delivery assignment",
+        "Rider management",
+        "Third-party carrier management",
+        "Waybill registration",
+        "Dispatch manifests",
+        "Delivery charges",
+        "Tracking references",
+        "Dispatch timestamps",
+        "Delivery proof",
+        "Delivery notes",
+        "Failed delivery reasons",
+        "Return-to-warehouse tracking"
+      ],
+      "delivery_workflow": [
+        "Confirm order readiness",
+        "Determine destination and delivery method",
+        "Calculate applicable delivery charges",
+        "Assign rider or carrier",
+        "Prepare dispatch record",
+        "Record dispatch",
+        "Track delivery progress",
+        "Capture delivery outcome",
+        "Record COD collection where applicable",
+        "Close or initiate return workflow"
+      ],
+      "delivery_statuses": [
+        "PENDING_ASSIGNMENT",
+        "ASSIGNED",
+        "PICKED_UP",
+        "DISPATCHED",
+        "IN_TRANSIT",
+        "OUT_FOR_DELIVERY",
+        "DELIVERED",
+        "FAILED",
+        "RETURNING",
+        "RETURNED"
+      ]
+    },
+    "cod_management": {
+      "description": "Track money collected from customers for delivered orders and reconcile it against vendor obligations.",
+      "features": [
+        "Expected COD amount",
+        "Actual amount collected",
+        "Collection method",
+        "Collection timestamp",
+        "Collecting staff or rider",
+        "Cash handover",
+        "Bank transfer confirmation",
+        "Collection discrepancy tracking",
+        "Outstanding COD",
+        "COD reconciliation",
+        "Collection history"
+      ],
+      "collection_methods": [
+        "Cash",
+        "Bank transfer",
+        "Approved digital payment channel"
+      ],
+      "rules": [
+        "Expected COD and actual COD must be stored separately.",
+        "A delivery confirmation must not automatically be treated as proof of cash collection.",
+        "Every collection must reference an order.",
+        "Cash collected by riders must be reconciled against handovers.",
+        "Short collections and overcollections must be flagged.",
+        "Unverified collections must not become available vendor funds.",
+        "Every confirmed collection must generate the appropriate accounting entries."
+      ]
+    },
+    "vendor_settlement": {
+      "description": "Calculate, reconcile and pay vendors the money collected on their behalf after authorized deductions.",
+      "features": [
+        "Vendor payable balance",
+        "Order-level collection records",
+        "Logistics fee deductions",
+        "Other authorized deductions",
+        "Settlement batch creation",
+        "Settlement approval",
+        "Bank transfer recording",
+        "Settlement references",
+        "Settlement history",
+        "Vendor statements",
+        "Settlement reconciliation"
+      ],
+      "settlement_calculation": {
+        "formula": "Net Vendor Payable = Verified Customer Collections - Authorized Logistics Charges - Authorized Other Deductions - Prior Approved Adjustments",
+        "requirements": [
+          "Every deduction must have a defined reason and amount.",
+          "Charges must follow the applicable vendor agreement.",
+          "Settlement calculations must be reproducible.",
+          "A settlement must be traceable to its underlying orders and collections.",
+          "Settlement batches must support partial payment.",
+          "Unpaid balances must remain outstanding.",
+          "Settlement approval and payment recording must be separately auditable."
+        ]
+      },
+      "settlement_statuses": [
+        "PENDING_RECONCILIATION",
+        "READY_FOR_APPROVAL",
+        "APPROVED",
+        "PARTIALLY_PAID",
+        "PAID",
+        "ON_HOLD",
+        "DISPUTED",
+        "REVERSED"
+      ]
+    },
+    "pricing_and_charge_engine": {
+      "description": "Configurable rules for logistics charges and vendor-specific commercial agreements.",
+      "charge_types": [
+        "Order processing fee",
+        "Local delivery fee",
+        "Interstate dispatch fee",
+        "Waybill fee",
+        "Storage fee",
+        "COD handling fee",
+        "Return handling fee",
+        "Special handling fee",
+        "Other approved charges"
+      ],
+      "configuration": [
+        "Default charge schedules",
+        "Vendor-specific overrides",
+        "Location-based pricing",
+        "Weight-based pricing",
+        "Quantity-based pricing",
+        "Fixed charges",
+        "Percentage-based charges",
+        "Effective dates",
+        "Charge exemptions",
+        "Approval requirements"
+      ],
+      "rules": [
+        "Never silently change a charge already applied to a finalized order.",
+        "Record the pricing rule and version used for every charge.",
+        "Allow authorized adjustments with reasons.",
+        "Display charges clearly on vendor statements."
+      ]
+    },
+    "accounting_and_ledger": {
+      "description": "Provide a complete, auditable accounting foundation for the logistics operator.",
+      "accounting_model": "Double-entry bookkeeping",
+      "features": [
+        "Chart of accounts",
+        "General ledger",
+        "Journal entries",
+        "Accounts receivable",
+        "Vendor payables",
+        "Cash accounts",
+        "Bank accounts",
+        "Logistics revenue",
+        "Operating expenses",
+        "COD clearing accounts",
+        "Bank reconciliation",
+        "Cash reconciliation",
+        "Trial balance",
+        "Income statement",
+        "Balance sheet",
+        "Cash flow statement",
+        "Financial period management",
+        "Vendor statements",
+        "Audit trail"
+      ],
+      "ledger_rules": [
+        "Every posted journal must balance.",
+        "Posted financial entries must be immutable.",
+        "Corrections must use reversal and replacement entries.",
+        "Operational order updates must not directly overwrite financial history.",
+        "Every financial event must have a source reference.",
+        "Vendor funds must be distinguishable from the operator's own revenue.",
+        "COD money held on behalf of vendors must be tracked as a liability until appropriately settled.",
+        "Only verified collections may create available vendor payable balances."
+      ],
+      "example_accounting_flow": {
+        "event": "Customer pays NGN 100000 COD on successful delivery. Logistics charges are NGN 5000.",
+        "collection": [
+          {
+            "account": "Cash or COD Clearing",
+            "debit": 100000
+          },
+          {
+            "account": "Vendor Payables",
+            "credit": 100000
+          }
+        ],
+        "fee_recognition": [
+          {
+            "account": "Vendor Payables",
+            "debit": 5000
+          },
+          {
+            "account": "Logistics Revenue",
+            "credit": 5000
+          }
+        ],
+        "result": {
+          "gross_collection": 100000,
+          "logistics_charges": 5000,
+          "vendor_net_payable": 95000
+        }
+      },
+      "note": "The example assumes the logistics charge is earned and recognized at this point under the applicable agreement. Actual accounting recognition must follow the operator's accounting policy. Cash or COD clearing must be reconciled to the actual collection and subsequent cash or bank deposit."
+    },
+    "expense_management": {
+      "description": "Record and monitor the operating costs of the logistics business.",
+      "expense_categories": [
+        "Fuel",
+        "Staff salaries",
+        "Warehouse rent",
+        "Utilities",
+        "Vehicle maintenance",
+        "Packaging",
+        "Transport",
+        "Communications",
+        "Administrative expenses",
+        "Other operating expenses"
+      ],
+      "features": [
+        "Expense registration",
+        "Expense categories",
+        "Receipt attachments",
+        "Payment method",
+        "Approval workflow",
+        "Recurring expenses",
+        "Expense reports",
+        "Expense audit trail"
+      ]
+    },
+    "staff_and_access_control": {
+      "description": "Control access to sensitive operational and financial functions.",
+      "features": [
+        "Staff accounts",
+        "Role-based access control",
+        "Custom permissions",
+        "Department assignment",
+        "Warehouse assignment",
+        "Task assignment",
+        "Staff activity logs",
+        "Account suspension",
+        "Session management"
+      ],
+      "security_rules": [
+        "Riders should only see assigned deliveries and necessary customer information.",
+        "Warehouse staff should only access relevant inventory operations.",
+        "Order agents should not approve financial settlements unless separately authorized.",
+        "Finance staff should access financial records according to assigned permissions.",
+        "Only authorized users may change pricing rules.",
+        "Only authorized users may approve settlements.",
+        "Vendor accounts must be restricted to their own records."
+      ]
+    },
+    "notifications_and_automation": {
+      "channels": [
+        "WhatsApp",
+        "In-app notifications",
+        "Email",
+        "SMS where needed"
+      ],
+      "automations": [
+        "Notify staff of new WhatsApp orders",
+        "Notify vendors when order information is incomplete",
+        "Notify staff of low inventory",
+        "Alert staff about unconfirmed orders",
+        "Notify dispatchers of ready orders",
+        "Notify vendors of delivery updates",
+        "Alert finance staff about unreconciled COD",
+        "Notify vendors of settlement availability",
+        "Alert managers about failed deliveries",
+        "Flag overdue operational tasks"
+      ],
+      "automation_rules": [
+        "Automation must be idempotent.",
+        "Failed notifications must be retryable.",
+        "Important actions must be logged.",
+        "Automations must not bypass authorization rules.",
+        "Financial actions must not be triggered solely by unverified AI interpretations."
+      ]
+    },
+    "reports_and_analytics": {
+      "operational_reports": [
+        "Orders by date",
+        "Orders by vendor",
+        "Orders by channel",
+        "Orders by status",
+        "Delivery success rate",
+        "Failed delivery analysis",
+        "Average fulfilment time",
+        "Rider performance",
+        "Warehouse performance",
+        "Inventory movement",
+        "Stock ageing"
+      ],
+      "financial_reports": [
+        "Daily collections",
+        "Outstanding COD",
+        "Vendor payable balances",
+        "Vendor settlement history",
+        "Logistics revenue",
+        "Expense reports",
+        "Profitability",
+        "Cash movement",
+        "Bank reconciliation",
+        "Trial balance",
+        "Income statement",
+        "Balance sheet",
+        "Cash flow statement"
+      ],
+      "whatsapp_analytics": [
+        "Orders received through WhatsApp",
+        "Orders automatically recognized",
+        "Vendor recognition success rate",
+        "Order extraction accuracy",
+        "Messages requiring staff intervention",
+        "Duplicate order detection",
+        "Average order processing time",
+        "Unassigned sender volume",
+        "Message delivery failures"
+      ],
+      "export_formats": [
+        "CSV",
+        "Excel",
+        "PDF"
+      ]
+    }
+  },
+  "core_data_model": {
+    "entities": [
+      "User",
+      "Role",
+      "Permission",
+      "StaffProfile",
+      "Vendor",
+      "VendorContact",
+      "VendorAgreement",
+      "VendorPricingRule",
+      "Warehouse",
+      "WarehouseLocation",
+      "Product",
+      "ProductVariant",
+      "ProductAlias",
+      "InventoryBalance",
+      "InventoryMovement",
+      "StockReceipt",
+      "StockReservation",
+      "WhatsAppAccount",
+      "WhatsAppContact",
+      "Conversation",
+      "Message",
+      "MessageAttachment",
+      "MessageProcessingAttempt",
+      "VendorIdentityMatch",
+      "OrderDraft",
+      "Order",
+      "OrderItem",
+      "Customer",
+      "CustomerAddress",
+      "CustomerConfirmation",
+      "Delivery",
+      "DeliveryAssignment",
+      "Rider",
+      "Carrier",
+      "Waybill",
+      "CODCollection",
+      "CashHandover",
+      "Charge",
+      "Settlement",
+      "SettlementItem",
+      "Payment",
+      "Account",
+      "JournalEntry",
+      "JournalLine",
+      "Expense",
+      "BankTransaction",
+      "Reconciliation",
+      "Notification",
+      "AuditLog"
+    ],
+    "relationships": [
+      "A logistics operator manages multiple vendors.",
+      "A vendor has multiple authorized contacts.",
+      "A vendor owns multiple products.",
+      "A vendor's products may be stored across multiple warehouses.",
+      "A vendor may have multiple WhatsApp contacts.",
+      "A WhatsApp contact may participate in multiple conversations.",
+      "A conversation contains multiple messages.",
+      "A conversation may produce multiple order drafts and orders.",
+      "An order belongs to exactly one vendor.",
+      "An order contains one or more order items.",
+      "An order may have multiple delivery attempts.",
+      "An order may have one or more collection or adjustment events.",
+      "A settlement contains multiple settlement items.",
+      "Every posted financial event must be traceable to its source."
+    ],
+    "important_design_rules": [
+      "Do not treat a WhatsApp conversation as an order.",
+      "Do not treat a WhatsApp message as a confirmed order automatically.",
+      "Preserve original messages and attachments.",
+      "Preserve the relationship between an order and its originating message.",
+      "Store extracted values separately from human-confirmed values where necessary.",
+      "Use explicit vendor ownership on vendor-scoped records.",
+      "Keep financial records separate from mutable operational records.",
+      "Use immutable posted ledger entries.",
+      "Use database transactions for operations that affect multiple related records."
+    ]
+  },
+  "security_and_integrity": {
+    "requirements": [
+      "Authentication",
+      "Role-based authorization",
+      "Vendor-level data isolation",
+      "Webhook signature verification",
+      "Encrypted data in transit",
+      "Encrypted sensitive data at rest",
+      "Secure attachment storage",
+      "Phone number verification",
+      "Audit logging",
+      "Session management",
+      "Rate limiting",
+      "API authentication",
+      "Backup and recovery",
+      "Data retention policies",
+      "Sensitive information access controls"
+    ],
+    "financial_integrity": [
+      "Double-entry accounting",
+      "Immutable posted journals",
+      "Idempotent financial event processing",
+      "Explicit reversals",
+      "Settlement approval controls",
+      "COD reconciliation",
+      "Cash handover reconciliation",
+      "Separation of duties",
+      "Auditability of all adjustments"
+    ],
+    "whatsapp_integrity": [
+      "Verify webhook signatures",
+      "Deduplicate inbound events",
+      "Preserve WhatsApp message IDs",
+      "Track processing attempts",
+      "Handle out-of-order events safely",
+      "Prevent duplicate order creation",
+      "Restrict message access by role",
+      "Prevent cross-vendor message disclosure"
+    ]
+  },
+  "technical_architecture": {
+    "architecture_style": "Modular monolith initially, with clear domain boundaries and asynchronous background processing.",
+    "major_components": [
+      {
+        "component": "Frontend",
+        "responsibility": "Dashboard, vendor management, WhatsApp inbox, order operations, warehouse management, dispatch, finance and reporting."
+      },
+      {
+        "component": "Backend API",
+        "responsibility": "Business rules, authentication, authorization, order workflows, inventory, settlements and accounting."
+      },
+      {
+        "component": "WhatsApp Integration Service",
+        "responsibility": "Webhook ingestion, message sending, media retrieval, delivery events and provider integration."
+      },
+      {
+        "component": "Order Recognition Service",
+        "responsibility": "Vendor identification, intent classification, extraction, product matching, confidence scoring and draft preparation."
+      },
+      {
+        "component": "Background Workers",
+        "responsibility": "Message processing, notifications, document generation, reconciliation jobs and scheduled tasks."
+      },
+      {
+        "component": "Database",
+        "responsibility": "Transactional operational data, vendor ownership, accounting and audit records."
+      },
+      {
+        "component": "Object Storage",
+        "responsibility": "WhatsApp attachments, product images, receipts, delivery proof and documents."
+      },
+      {
+        "component": "Reporting Layer",
+        "responsibility": "Operational and financial reporting."
+      }
+    ],
+    "design_patterns": [
+      "Domain-driven modular design",
+      "Transactional database operations",
+      "Event-driven background processing",
+      "Transactional outbox pattern",
+      "Idempotency keys",
+      "Audit logging",
+      "Explicit state machines",
+      "API versioning",
+      "Provider abstraction"
+    ],
+    "ai_architecture": {
+      "role": "Assistive interpretation layer, not the authority for business or financial decisions.",
+      "responsibilities": [
+        "Understand natural language WhatsApp messages",
+        "Recognize order intent",
+        "Extract order fields",
+        "Interpret voice notes through speech-to-text",
+        "Read order screenshots and documents",
+        "Match informal product descriptions to vendor catalog candidates",
+        "Identify likely references to previous orders",
+        "Generate clear clarification questions",
+        "Suggest staff actions"
+      ],
+      "restrictions": [
+        "AI cannot create ledger entries directly.",
+        "AI cannot independently approve vendor settlements.",
+        "AI cannot bypass inventory validation.",
+        "AI cannot transfer money.",
+        "AI cannot silently change confirmed orders.",
+        "AI cannot access another vendor's data.",
+        "AI cannot fabricate missing information.",
+        "All consequential actions must pass deterministic backend validation and authorization."
+      ]
+    }
+  },
+  "key_workflows": {
+    "whatsapp_order_submission": [
+      "Vendor sends a WhatsApp message.",
+      "Keyway receives the message.",
+      "Keyway identifies the sender using registered WhatsApp identity.",
+      "Keyway retrieves the vendor's profile and product catalog.",
+      "Keyway determines whether the message contains a new order.",
+      "Keyway extracts the order details.",
+      "Keyway resolves product names and variants.",
+      "Keyway checks inventory and required fields.",
+      "Keyway detects possible duplicate orders.",
+      "Keyway creates a structured order draft.",
+      "Keyway requests clarification if information is missing.",
+      "Vendor or authorized staff confirms the draft.",
+      "Keyway creates the order and reserves stock.",
+      "Keyway sends the order reference and confirmation."
+    ],
+    "customer_delivery": [
+      "Order enters processing.",
+      "Staff reviews the order.",
+      "Customer is contacted.",
+      "Customer confirms product, amount and address.",
+      "Delivery method is selected.",
+      "Rider or carrier is assigned.",
+      "Order is dispatched.",
+      "Delivery progress is tracked.",
+      "Customer receives the product or delivery fails.",
+      "COD is collected and recorded where applicable.",
+      "Order enters the appropriate completed or return workflow."
+    ],
+    "vendor_settlement": [
+      "Delivery and COD collection are recorded.",
+      "Collection is reconciled.",
+      "Applicable logistics charges are calculated.",
+      "Vendor payable is updated through accounting entries.",
+      "Settlement batch is generated.",
+      "Finance reviews settlement details.",
+      "Authorized manager approves settlement.",
+      "Payment is made to the vendor.",
+      "Payment reference is recorded.",
+      "Settlement is reconciled.",
+      "Vendor receives a settlement notification and statement."
+    ]
+  },
+  "usability_and_automation": {
+    "smart_order_entry": [
+      "Recognize vendors automatically.",
+      "Recognize products using vendor-specific aliases.",
+      "Understand natural language order messages.",
+      "Remember conversation context when safely resolving references.",
+      "Detect whether a message is a new order or an update.",
+      "Populate known information automatically.",
+      "Ask only for missing information.",
+      "Present extracted details in a readable order summary.",
+      "Allow one-tap staff approval where all validations pass."
+    ],
+    "staff_productivity": [
+      "Unified inbox for incoming orders",
+      "Keyboard shortcuts",
+      "Bulk order processing",
+      "Saved filters",
+      "Quick replies",
+      "Automatic task assignment",
+      "Priority queues",
+      "Exception queues",
+      "One-click access to vendor and order details",
+      "Clear next-action recommendations"
+    ],
+    "vendor_convenience": [
+      "No mandatory portal adoption",
+      "Natural language WhatsApp orders",
+      "Order references in confirmations",
+      "Simple order status enquiries",
+      "Automatic delivery updates",
+      "Easy settlement enquiries",
+      "Downloadable account statements",
+      "Optional vendor portal"
+    ],
+    "automation_boundaries": [
+      "Automate repetitive and deterministic work.",
+      "Ask humans when information is ambiguous.",
+      "Require approval for sensitive financial actions.",
+      "Make automated decisions explainable and auditable.",
+      "Never sacrifice financial or inventory integrity for convenience."
+    ]
+  },
+  "implementation_phases": {
+    "phase_1_foundation": {
+      "goal": "Establish the operational foundation.",
+      "deliverables": [
+        "Authentication and RBAC",
+        "Vendor management",
+        "Vendor contact registration",
+        "Product catalog",
+        "Warehouse management",
+        "Inventory receiving and tracking",
+        "Basic dashboard",
+        "Audit logging"
+      ]
+    },
+    "phase_2_whatsapp_and_order_intake": {
+      "goal": "Make WhatsApp the primary order intake channel.",
+      "deliverables": [
+        "WhatsApp Cloud API integration",
+        "Webhook processing",
+        "Unified WhatsApp inbox",
+        "Automatic vendor recognition",
+        "Unknown sender handling",
+        "Message intent classification",
+        "Natural language order extraction",
+        "Vendor-specific product matching",
+        "Order draft generation",
+        "Missing information prompts",
+        "Duplicate detection",
+        "Human review interface",
+        "Order creation and references"
+      ]
+    },
+    "phase_3_fulfilment": {
+      "goal": "Manage orders from registration through delivery.",
+      "deliverables": [
+        "Order management",
+        "Customer management",
+        "Customer confirmation",
+        "Local rider management",
+        "Third-party carrier management",
+        "Waybill tracking",
+        "Dispatch management",
+        "Delivery proof",
+        "Failed delivery handling",
+        "Returns and restocking"
+      ]
+    },
+    "phase_4_cod_and_vendor_settlement": {
+      "goal": "Make all collections and vendor payments traceable.",
+      "deliverables": [
+        "COD collection records",
+        "Cash handover",
+        "Collection reconciliation",
+        "Charge engine",
+        "Vendor payable balances",
+        "Settlement batches",
+        "Settlement approvals",
+        "Vendor statements",
+        "Payment recording"
+      ]
+    },
+    "phase_5_accounting": {
+      "goal": "Deliver complete financial management.",
+      "deliverables": [
+        "Chart of accounts",
+        "Double-entry ledger",
+        "Journal entries",
+        "Accounts receivable",
+        "Accounts payable",
+        "Expense management",
+        "Cash management",
+        "Bank reconciliation",
+        "Trial balance",
+        "Income statement",
+        "Balance sheet",
+        "Cash flow statement"
+      ]
+    },
+    "phase_6_automation_and_analytics": {
+      "goal": "Improve operational efficiency and business intelligence.",
+      "deliverables": [
+        "Advanced AI message understanding",
+        "Voice-note order extraction",
+        "Image and document extraction",
+        "Advanced product recognition",
+        "Automated workflow assignment",
+        "Operational analytics",
+        "Financial analytics",
+        "Vendor performance reports",
+        "Staff performance reports",
+        "Advanced notification rules",
+        "API integrations"
+      ]
+    }
+  },
+  "acceptance_criteria": {
+    "vendor_recognition": [
+      "A registered vendor sending a message from a verified phone number is identified automatically.",
+      "Multiple authorized numbers can be linked to one vendor.",
+      "Unknown senders are isolated in an unassigned queue.",
+      "Ambiguous identities require verification.",
+      "No vendor can retrieve another vendor's records."
+    ],
+    "order_recognition": [
+      "Keyway can recognize supported natural language order formats.",
+      "Keyway can distinguish new orders from order enquiries and updates.",
+      "Keyway can match products against the correct vendor catalog.",
+      "Keyway can extract customer and delivery information.",
+      "Keyway can identify missing fields and ask for them.",
+      "Keyway can flag probable duplicates.",
+      "Every generated order retains its source-message reference.",
+      "Ambiguous orders are routed for review instead of being silently accepted."
+    ],
+    "usability": [
+      "A vendor can submit a valid order without using the portal.",
+      "Staff can review and process orders from one inbox.",
+      "Common actions require minimal navigation.",
+      "Order details are clearly presented before confirmation.",
+      "The system is usable on mobile and desktop."
+    ],
+    "operations": [
+      "Every order can be tracked from intake to final outcome.",
+      "Inventory movements are auditable.",
+      "Customer confirmation is recorded.",
+      "Local and interstate deliveries are supported.",
+      "Failed deliveries and returns are tracked."
+    ],
+    "finance": [
+      "Every verified COD collection is traceable to an order.",
+      "Every logistics deduction has an explanation.",
+      "Vendor balances reconcile to their underlying transactions.",
+      "Settlements can be approved and reconciled.",
+      "Posted journals balance and cannot be silently modified.",
+      "Financial reports can be generated from the ledger."
+    ]
+  },
+  "final_product_definition": {
+    "description": "Keyway is a WhatsApp-first logistics operating system that connects ecommerce vendors, warehouse inventory, customer orders, delivery operations, cash collection, vendor settlements and accounting into one auditable platform.",
+    "experience": "Vendors communicate naturally through WhatsApp. Keyway recognizes who they are, understands what they send, prepares and validates orders, and keeps them informed. Staff manage the entire operation through a unified workspace.",
+    "operational_truth": "Keyway is the source of truth for inventory, order fulfilment and delivery operations.",
+    "financial_truth": "The double-entry ledger is the source of truth for collections, charges, payables, settlements and business finances.",
+    "guiding_statement": "WhatsApp is the front door. Keyway is the operating system. The ledger is the financial source of truth."
+  }
+}
