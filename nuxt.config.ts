@@ -20,6 +20,13 @@ export default defineNuxtConfig({
     },
   },
   css: ['~/assets/css/main.css'],
+  // Dev-server only: allow access through sandbox preview proxies whose
+  // hostnames change on every restart (Vite blocks unknown Host headers).
+  vite: {
+    server: {
+      allowedHosts: true,
+    },
+  },
   nitro: {
     // Proxy /api to the FastAPI modular monolith (server-side, same-origin for the browser)
     routeRules: {},
