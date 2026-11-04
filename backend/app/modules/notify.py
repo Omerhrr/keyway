@@ -16,6 +16,7 @@ EVENT_CATALOG = [
     {"event_type": "ORDER_CHANGE_REQUEST", "label": "Customer requested an order change", "audience": "Staff"},
     {"event_type": "ORDER_DISPATCHED", "label": "Order dispatched", "audience": "Vendor"},
     {"event_type": "ORDER_DELIVERED", "label": "Order delivered", "audience": "Vendor"},
+    {"event_type": "ORDER_STATUS_CHANGED", "label": "Order status changed (any transition)", "audience": "Staff + vendor"},
     {"event_type": "DELIVERY_FAILED", "label": "Delivery failed", "audience": "Managers"},
     {"event_type": "COD_RECORDED", "label": "COD collection recorded", "audience": "Finance"},
     {"event_type": "COD_DISCREPANCY", "label": "COD amount discrepancy", "audience": "Finance"},

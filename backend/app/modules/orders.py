@@ -68,6 +68,7 @@ class ManualOrderIn(BaseModel):
     delivery_landmark: str = ""
     instructions: str = ""
     payment_method: str = "COD"
+    warehouse_id: int | None = None  # optional fulfilment override (multi-warehouse)
     items: list[ManualOrderItem]
 
 
@@ -103,6 +104,10 @@ class OutcomeIn(BaseModel):
 # ---------------------------------------------------------------------------
 # Service functions
 # ---------------------------------------------------------------------------
+
+def titleize_status(s: str) -> str:
+    return (s or "").replace("_", " ").title()
+
 
 def add_event(db, order, event_type, from_status="", to_status="", actor=None, note=""):
     db.add(OrderEvent(order_id=order.id, event_type=event_type, from_status=from_status,
@@ -143,10 +148,21 @@ def duplicate_check(db, vendor_id: int, customer_phone: str, product_id: int, qt
     return None
 
 
-def pick_warehouse(db, product_id: int, qty: int):
+def pick_warehouse(db, product_id: int, qty: int, preferred_warehouse_id: int | None = None):
     """Warehouse that physically holds this product with enough available stock;
+    a preferred (e.g. staff-chosen or user home) warehouse wins when it can fulfil;
     falls back to the default warehouse (which then raises a clear stock error)."""
     from app.modules.inventory_models import InventoryBalance
+    if preferred_warehouse_id:
+        bal = (db.query(InventoryBalance)
+               .filter(InventoryBalance.product_id == product_id,
+                       InventoryBalance.warehouse_id == preferred_warehouse_id,
+                       (InventoryBalance.qty_physical - InventoryBalance.qty_reserved) >= qty)
+               .first())
+        if bal:
+            w = db.get(Warehouse, bal.warehouse_id)
+            if w and w.is_active:
+                return w
     bal = (db.query(InventoryBalance)
            .filter(InventoryBalance.product_id == product_id,
                    (InventoryBalance.qty_physical - InventoryBalance.qty_reserved) >= qty)
@@ -256,7 +272,9 @@ def list_orders(user: User = Depends(require_staff), db: Session = Depends(get_d
         query = query.filter((Order.reference.ilike(like)) | (Customer.name.ilike(like)) |
                              (Customer.phone.ilike(like)))
     rows = query.order_by(Order.id.desc()).limit(min(limit, 300)).all()
+    wh_names = {w.id: w.name for w in db.query(Warehouse).all()}
     return [serialize(o, vendor_name=v.name, customer_name=c.name, customer_phone=c.phone,
+                      warehouse_name=wh_names.get(o.warehouse_id, ""),
                       item_count=db.query(OrderItem).filter(OrderItem.order_id == o.id).count())
             for o, v, c in rows]
 
@@ -396,7 +414,12 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
         raise HTTPException(404, "Vendor not found")
     if not body.items:
         raise HTTPException(400, "At least one item is required")
-    warehouse = pick_warehouse(db, body.items[0].product_id, body.items[0].qty)
+    if body.warehouse_id:
+        wh = db.get(Warehouse, body.warehouse_id)
+        if not wh or not wh.is_active:
+            raise HTTPException(400, "Selected warehouse does not exist or is inactive")
+    warehouse = pick_warehouse(db, body.items[0].product_id, body.items[0].qty,
+                               preferred_warehouse_id=body.warehouse_id)
     customer = upsert_customer(db, body.vendor_id, body.customer_name, body.customer_phone, body.customer_alt_phone)
     total = 0
     prepared = []
@@ -432,7 +455,7 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
            body=f"Manual order for {vendor.name}", vendor_id=vendor.id, entity_type="order", entity_id=order.id)
     audit(db, user, "create", "order", order.id, f"Manual order {order.reference} created")
     db.commit()
-    return serialize(order)
+    return serialize(order, warehouse_name=warehouse.name)
 
 
 @router.get("/{order_id}")
@@ -456,7 +479,9 @@ def get_order(order_id: int, user: User = Depends(require_staff), db: Session = 
     if o.source_message_id:
         from app.modules.conversations_models import Message
         source_msg = db.get(Message, o.source_message_id)
+    wh = db.get(Warehouse, o.warehouse_id) if o.warehouse_id else None
     return serialize(o, vendor_name=v.name if v else None,
+                     warehouse_name=wh.name if wh else "",
                      customer=serialize(c) if c else None,
                      items=serialize_list(items), events=serialize_list(events),
                      confirmation=serialize(confirmation) if confirmation else None,
@@ -495,6 +520,11 @@ def change_status(order_id: int, body: StatusIn, user: User = Depends(require_pe
         o.confirmed_at = o.confirmed_at or utcnow()
     add_event(db, o, "STATUS_CHANGE", from_status, to, user, body.note)
     audit(db, user, "status_change", "order", o.id, f"Order {o.reference}: {from_status} -> {to}", data={"note": body.note})
+    notify(db, event_type="ORDER_STATUS_CHANGED",
+           title=f"Order {o.reference}: {titleize_status(to)}",
+           body=f"Status moved from {titleize_status(from_status)} to {titleize_status(to)}" + (f" - {body.note}" if body.note else ""),
+           vendor_id=o.vendor_id, entity_type="order", entity_id=o.id,
+           dedup_key=f"ORDER_STATUS_CHANGED:order:{o.id}:{to}")
     db.commit()
     return serialize(o)
 

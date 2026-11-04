@@ -2,6 +2,8 @@
 export function usePwa() {
   const canInstall = useState('pwa-can-install', () => false)
   const updateReady = useState('pwa-update-ready', () => false)
+  const isIOS = useState('pwa-is-ios', () => false)
+  const standalone = useState('pwa-standalone', () => false)
   let deferred: any = null
   let bound = false
 
@@ -9,11 +11,18 @@ export function usePwa() {
     if (!import.meta.client || bound) return
     bound = true
 
+    // iOS Safari never fires beforeinstallprompt - offer manual A2HS steps instead
+    isIOS.value = /iphone|ipad|ipod/i.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && (navigator as any).maxTouchPoints > 1)
+    standalone.value = window.matchMedia('(display-mode: standalone)').matches
+      || (navigator as any).standalone === true
+
     window.addEventListener('beforeinstallprompt', (e: any) => {
       e.preventDefault()
       deferred = e
       canInstall.value = true
     })
+    window.addEventListener('appinstalled', () => { canInstall.value = false })
 
     // a waiting service worker means a new version is ready to activate
     if ('serviceWorker' in navigator) {
@@ -38,6 +47,10 @@ export function usePwa() {
     return outcome === 'accepted'
   }
 
+  /** True when the app can offer an install path right now. */
+  const installable = computed(() =>
+    !standalone.value && (canInstall.value || isIOS.value))
+
   function applyUpdate() {
     if (!import.meta.client) return
     navigator.serviceWorker.getRegistration().then((reg) => {
@@ -47,5 +60,5 @@ export function usePwa() {
     setTimeout(() => window.location.reload(), 600)
   }
 
-  return { canInstall, updateReady, bind, install, applyUpdate }
+  return { canInstall, updateReady, isIOS, standalone, installable, bind, install, applyUpdate }
 }

@@ -5,6 +5,7 @@ const status = ref('')
 const q = ref('')
 const vendors = ref<any[]>([])
 const vendorId = ref(0)
+const warehouses = ref<any[]>([])
 
 async function load() {
   loading.value = true
@@ -20,6 +21,7 @@ async function load() {
 onMounted(async () => {
   load()
   try { vendors.value = await api('/vendors') } catch {}
+  try { warehouses.value = (await api('/inventory/warehouses')).filter((w: any) => w.is_active) } catch {}
 })
 
 const chips = ['', 'PENDING_REVIEW', 'CONFIRMED', 'PROCESSING', 'READY_FOR_DISPATCH', 'IN_TRANSIT', 'DELIVERED', 'DELIVERY_FAILED', 'CANCELLED']
@@ -29,7 +31,7 @@ const showNew = ref(false)
 const saving = ref(false)
 const vendorsOptions = computed(() => vendors.value.map(v => ({ label: v.name, value: v.id })))
 const products = ref<any[]>([])
-const form = reactive({ vendor_id: 0, customer_name: '', customer_phone: '', city: '', state: '', street: '', product_id: 0, qty: 1, price_naira: '', instructions: '' })
+const form = reactive({ vendor_id: 0, customer_name: '', customer_phone: '', city: '', state: '', street: '', product_id: 0, qty: 1, price_naira: '', instructions: '', warehouse_id: 0 })
 
 async function onVendorChange() {
   products.value = []
@@ -49,8 +51,9 @@ async function createOrder() {
                 unit_price_kobo: form.price_naira ? toKobo(form.price_naira) : null }],
       instructions: form.instructions,
     }
+    if (form.warehouse_id) body.warehouse_id = form.warehouse_id
     const o = await api('/orders', { method: 'POST', body })
-    useToast().add({ title: `Order ${o.reference} created`, color: 'success' })
+    useToast().add({ title: `Order ${o.reference} created`, description: `Fulfilment warehouse: ${o.warehouse_name || 'auto'}`, color: 'success' })
     showNew.value = false
     await load()
   } catch (e) {
@@ -83,11 +86,12 @@ async function createOrder() {
       { key: 'reference', label: 'Order' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'customer_name', label: 'Customer' },
+      { key: 'warehouse_name', label: 'Warehouse' },
       { key: 'destination', label: 'Destination' },
       { key: 'cod', label: 'COD', align: 'right' },
       { key: 'source', label: 'Source' },
       { key: 'status', label: 'Status' },
-    ]" :rows="orders.map(o => ({ ...o, destination: [o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '—', cod: fmtNaira(o.cod_amount_kobo) }))"
+    ]" :rows="orders.map(o => ({ ...o, destination: [o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '—', cod: fmtNaira(o.cod_amount_kobo), warehouse_name: o.warehouse_name || '—' }))"
       :loading="loading" clickable empty-title="No orders" empty-hint="Create one manually or simulate a WhatsApp order." @row-click="r => navigateTo(`/orders/${r.id}`)">
       <template #reference="{ row }">
         <span class="font-mono font-semibold text-primary-600">{{ row.reference }}</span>
@@ -103,6 +107,9 @@ async function createOrder() {
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Vendor"><USelect v-model="form.vendor_id" class="w-full" :items="vendorsOptions" @update:model-value="onVendorChange" /></UFormField>
           <UFormField label="Product"><USelect v-model="form.product_id" class="w-full" :items="products.map(p => ({ label: `${p.name} · avail ${p.qty_available}`, value: p.id }))" /></UFormField>
+          <UFormField label="Fulfilment warehouse" hint="Pick a branch or leave on Auto - Keyway uses the warehouse holding the stock">
+            <USelect v-model="form.warehouse_id" class="w-full" :items="[{ label: `Auto (best stock)`, value: 0 }, ...warehouses.map(w => ({ label: w.name, value: w.id }))]" />
+          </UFormField>
           <UFormField label="Customer name"><UInput v-model="form.customer_name" class="w-full" /></UFormField>
           <UFormField label="Customer phone"><UInput v-model="form.customer_phone" class="w-full" /></UFormField>
           <UFormField label="City"><UInput v-model="form.city" class="w-full" /></UFormField>

@@ -3,6 +3,7 @@ const { can } = useAuth()
 const tab = ref('users')
 const tabs = [
   { label: 'Staff & access', value: 'users', icon: 'i-lucide-users' },
+  { label: 'Warehouses', value: 'warehouses', icon: 'i-lucide-warehouse' },
   { label: 'Roles', value: 'roles', icon: 'i-lucide-shield' },
   { label: 'Pricing rules', value: 'charges', icon: 'i-lucide-tags' },
   { label: 'Notifications', value: 'notify', icon: 'i-lucide-bell-ring' },
@@ -15,33 +16,121 @@ const rules = ref<any[]>([])
 const account = ref<any>(null)
 const templates = ref<any[]>([])
 const vendorsList = ref<any[]>([])
+const warehouses = ref<any[]>([])
 const loading = ref(true)
 const saving = ref(false)
 
 async function load() {
   loading.value = true
   try {
-    const [u, r, c, a, t, v] = await Promise.all([
+    const [u, r, c, a, t, v, w] = await Promise.all([
       api('/users'), api('/roles'), api('/charges/rules'), api('/whatsapp/account'), api('/whatsapp/templates'), api('/vendors'),
+      api('/inventory/warehouses'),
     ])
     users.value = u; roles.value = r; rules.value = c; account.value = a; templates.value = t; vendorsList.value = v
+    warehouses.value = w
     await loadNotifications()
   } finally { loading.value = false }
 }
 onMounted(load)
 
 const showUser = ref(false)
-const form = reactive({ full_name: '', email: '', password: '', role_id: 0 })
+const form = reactive({ full_name: '', email: '', password: '', role_id: 0, warehouse_id: 0 })
 async function createUser() {
   saving.value = true
   try {
-    await api('/users', { method: 'POST', body: { ...form, role_id: form.role_id || null } })
+    await api('/users', { method: 'POST', body: { ...form, role_id: form.role_id || null, warehouse_id: form.warehouse_id || null } })
     useToast().add({ title: 'Staff account created', color: 'success' })
     showUser.value = false
     await load()
   } catch (e) {
     useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
   } finally { saving.value = false }
+}
+
+async function setUserWarehouse(u: any, warehouseId: number) {
+  try {
+    await api(`/users/${u.id}`, { method: 'PATCH', body: { warehouse_id: warehouseId || null } })
+    useToast().add({ title: 'Home warehouse updated', color: 'success' })
+    await load()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  }
+}
+
+// ---- Warehouses (multi-warehouse ops) ----
+const canManageInventory = computed(() => can('inventory.manage'))
+const showWh = ref(false)
+const whForm = reactive({ code: '', name: '', address: '', city: '', state: '', is_default: false })
+const editWh = ref<any>(null)
+const editWhForm = reactive({ name: '', address: '', city: '', state: '', is_default: false })
+const locForm = reactive({ code: '', kind: 'SHELF' })
+const whSaving = ref(false)
+
+async function createWarehouse() {
+  whSaving.value = true
+  try {
+    await api('/inventory/warehouses', { method: 'POST', body: { ...whForm, code: whForm.code.toUpperCase() } })
+    useToast().add({ title: 'Warehouse created', color: 'success' })
+    showWh.value = false
+    Object.assign(whForm, { code: '', name: '', address: '', city: '', state: '', is_default: false })
+    await load()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { whSaving.value = false }
+}
+
+function openEditWh(w: any) {
+  editWh.value = w
+  Object.assign(editWhForm, { name: w.name, address: w.address || '', city: w.city || '', state: w.state || '', is_default: !!w.is_default })
+}
+
+async function saveWarehouse() {
+  if (!editWh.value) return
+  whSaving.value = true
+  try {
+    await api(`/inventory/warehouses/${editWh.value.id}`, { method: 'PATCH', body: { ...editWhForm } })
+    useToast().add({ title: 'Warehouse updated', color: 'success' })
+    editWh.value = null
+    await load()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { whSaving.value = false }
+}
+
+async function makeDefault(w: any) {
+  try {
+    await api(`/inventory/warehouses/${w.id}`, { method: 'PATCH', body: { is_default: true } })
+    useToast().add({ title: `${w.name} is now the default warehouse`, color: 'success' })
+    await load()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  }
+}
+
+async function toggleWarehouse(w: any) {
+  try {
+    await api(`/inventory/warehouses/${w.id}`, { method: 'PATCH', body: { is_active: !w.is_active } })
+    await load()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  }
+}
+
+async function addLocation() {
+  if (!editWh.value || !locForm.code.trim()) return
+  whSaving.value = true
+  try {
+    await api('/inventory/locations', { method: 'POST', body: { warehouse_id: editWh.value.id, code: locForm.code.toUpperCase(), kind: locForm.kind } })
+    locForm.code = ''
+    locForm.kind = 'SHELF'
+    const fresh = await api('/inventory/warehouses')
+    warehouses.value = fresh
+    editWh.value = fresh.find((x: any) => x.id === editWh.value.id) || editWh.value
+    useToast().add({ title: 'Location added', color: 'success' })
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { whSaving.value = false }
 }
 
 const showRule = ref(false)
@@ -118,6 +207,21 @@ async function deleteNRule(r: any) {
   } catch (e) {
     useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
   }
+}
+
+const testingRule = ref<number | null>(null)
+async function testNRule(r: any) {
+  testingRule.value = r.id
+  try {
+    const res = await api(`/notification-rules/${r.id}/test`, { method: 'POST' })
+    useToast().add({
+      title: res.sent ? `Test sent to ${res.sent} target(s) via ${res.channel}` : 'No targets matched this rule',
+      description: res.failed ? `${res.failed} delivery failed - check the phone number / channel config.` : '',
+      color: res.sent && !res.failed ? 'success' : res.failed ? 'warning' : 'neutral',
+    })
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { testingRule.value = null }
 }
 
 async function runChecks() {
@@ -200,19 +304,69 @@ function copyWebhook() {
         { key: 'full_name', label: 'Name' },
         { key: 'email', label: 'Email' },
         { key: 'role_name', label: 'Role' },
+        { key: 'home_wh', label: 'Home warehouse' },
         { key: 'vendor_scope', label: 'Data scope' },
         { key: 'active', label: 'Status' },
         { key: 'actions', label: '' },
       ]" :rows="users.map(u => ({
         ...u,
+        home_wh: warehouses.find(w => w.id === u.warehouse_id)?.name || '',
         vendor_scope: u.is_vendor ? `Vendor #${u.vendor_id}` : 'All (staff)',
         active: u.is_active ? 'Active' : 'Suspended',
       }))" :loading="loading" empty-title="No users">
         <template #active="{ row }"><StatusBadge :status="row.is_active ? 'ACTIVE' : 'CANCELLED'" /></template>
+        <template #home_wh="{ row }">
+          <USelect v-if="!row.is_vendor && canManageInventory" :model-value="row.warehouse_id || 0" size="xs" class="w-44"
+                   :items="[{ label: 'No home warehouse', value: 0 }, ...warehouses.filter(w => w.is_active).map(w => ({ label: w.name, value: w.id }))]"
+                   @update:model-value="v => setUserWarehouse(row, v)" />
+          <span v-else class="text-xs text-zinc-400">{{ warehouses.find(w => w.id === row.warehouse_id)?.name || '—' }}</span>
+        </template>
         <template #actions="{ row }">
           <UButton size="xs" variant="soft" :color="row.is_active ? 'error' : 'success'" @click.stop="toggleUser(row)">
             {{ row.is_active ? 'Suspend' : 'Activate' }}
           </UButton>
+        </template>
+      </DataTable>
+    </template>
+
+    <!-- WAREHOUSES -->
+    <template v-else-if="tab === 'warehouses'">
+      <div class="mb-3 flex items-center gap-2">
+        <UButton v-if="canManageInventory" icon="i-lucide-plus" @click="showWh = true">New warehouse</UButton>
+        <p class="text-xs text-zinc-400">Stock balances, receipts and transfers are tracked per warehouse. The default warehouse fulfils orders when no branch is chosen.</p>
+      </div>
+      <DataTable :columns="[
+        { key: 'code', label: 'Code' },
+        { key: 'name', label: 'Warehouse' },
+        { key: 'location', label: 'City / State' },
+        { key: 'locations', label: 'Locations' },
+        { key: 'default', label: 'Flags' },
+        { key: 'actions', label: '' },
+      ]" :rows="warehouses.map(w => ({
+        ...w,
+        location: [w.city, w.state].filter(Boolean).join(', ') || '—',
+      }))" :loading="loading" empty-title="No warehouses">
+        <template #code="{ row }"><span class="font-mono font-semibold text-primary-600">{{ row.code }}</span></template>
+        <template #locations="{ row }">
+          <div class="flex flex-wrap gap-1">
+            <UBadge v-for="l in (row.locations || [])" :key="l.id" color="neutral" variant="subtle" size="xs">{{ l.code }}</UBadge>
+            <span v-if="!(row.locations || []).length" class="text-xs text-zinc-400">—</span>
+          </div>
+        </template>
+        <template #default="{ row }">
+          <div class="flex gap-1">
+            <UBadge v-if="row.is_default" color="primary" variant="subtle" size="xs">default</UBadge>
+            <UBadge :color="row.is_active ? 'success' : 'error'" variant="subtle" size="xs">{{ row.is_active ? 'active' : 'inactive' }}</UBadge>
+          </div>
+        </template>
+        <template #actions="{ row }">
+          <div class="flex gap-1" v-if="canManageInventory">
+            <UButton size="xs" variant="ghost" icon="i-lucide-pencil" @click.stop="openEditWh(row)" aria-label="Edit warehouse" />
+            <UButton v-if="!row.is_default" size="xs" variant="soft" color="primary" @click.stop="makeDefault(row)">Make default</UButton>
+            <UButton v-if="!row.is_default" size="xs" variant="soft" :color="row.is_active ? 'error' : 'success'" @click.stop="toggleWarehouse(row)">
+              {{ row.is_active ? 'Deactivate' : 'Activate' }}
+            </UButton>
+          </div>
         </template>
       </DataTable>
     </template>
@@ -286,6 +440,7 @@ function copyWebhook() {
               <UBadge v-else :color="row.enabled ? 'success' : 'neutral'" variant="subtle" size="xs">{{ row.enabled ? 'on' : 'off' }}</UBadge>
             </template>
             <template #actions="{ row }">
+              <UButton v-if="canManageNotify" size="xs" variant="ghost" icon="i-lucide-send" :loading="testingRule === row.id" @click.stop="testNRule(row)">Test</UButton>
               <UButton v-if="canManageNotify" size="xs" variant="ghost" color="error" icon="i-lucide-trash-2" @click.stop="deleteNRule(row)" aria-label="Delete rule" />
             </template>
           </DataTable>
@@ -361,6 +516,9 @@ function copyWebhook() {
           <UFormField label="Role">
             <USelect v-model="form.role_id" class="w-full" :items="(roles?.roles || []).map(r => ({ label: r.name, value: r.id }))" />
           </UFormField>
+          <UFormField label="Home warehouse" hint="Preselects this branch when the user creates orders or filters inventory" class="sm:col-span-2">
+            <USelect v-model="form.warehouse_id" class="w-full" :items="[{ label: 'No home warehouse', value: 0 }, ...warehouses.filter(w => w.is_active).map(w => ({ label: w.name, value: w.id }))]" />
+          </UFormField>
         </div>
       </template>
       <template #footer>
@@ -428,6 +586,63 @@ function copyWebhook() {
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showNRule = false">Cancel</UButton>
           <UButton :loading="saving" :disabled="!nForm.name || (nForm.target_scope === 'ROLE' && !nForm.role_name) || (nForm.target_scope === 'USER' && !nForm.user_id)" @click="createNRule">Create</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- new warehouse modal -->
+    <UModal v-model:open="showWh" title="New warehouse">
+      <template #body>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <UFormField label="Code" hint="Short unique code, e.g. WH-ABJ">
+            <UInput v-model="whForm.code" class="w-full" placeholder="WH-ABJ" />
+          </UFormField>
+          <UFormField label="Name">
+            <UInput v-model="whForm.name" class="w-full" placeholder="Abuja Central Warehouse" />
+          </UFormField>
+          <UFormField label="City"><UInput v-model="whForm.city" class="w-full" /></UFormField>
+          <UFormField label="State"><UInput v-model="whForm.state" class="w-full" /></UFormField>
+          <UFormField label="Address" class="sm:col-span-2"><UInput v-model="whForm.address" class="w-full" /></UFormField>
+          <USwitch v-model="whForm.is_default" label="Make this the default warehouse" class="sm:col-span-2" />
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2 w-full">
+          <UButton variant="ghost" color="neutral" @click="showWh = false">Cancel</UButton>
+          <UButton :loading="whSaving" :disabled="!whForm.code || !whForm.name" @click="createWarehouse">Create</UButton>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- edit warehouse modal -->
+    <UModal :open="!!editWh" @update:open="v => { if (!v) editWh = null }" :title="editWh ? `Edit ${editWh.code}` : 'Edit warehouse'">
+      <template #body>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <UFormField label="Code"><UInput :model-value="editWh?.code" disabled class="w-full" /></UFormField>
+          <UFormField label="Name"><UInput v-model="editWhForm.name" class="w-full" /></UFormField>
+          <UFormField label="City"><UInput v-model="editWhForm.city" class="w-full" /></UFormField>
+          <UFormField label="State"><UInput v-model="editWhForm.state" class="w-full" /></UFormField>
+          <UFormField label="Address" class="sm:col-span-2"><UInput v-model="editWhForm.address" class="w-full" /></UFormField>
+          <USwitch v-model="editWhForm.is_default" label="Default warehouse" class="sm:col-span-2" />
+          <USeparator class="sm:col-span-2" />
+          <p class="text-xs font-semibold text-zinc-500 sm:col-span-2 -mb-1">Locations (bins, shelves, staging areas)</p>
+          <div class="sm:col-span-2 flex flex-wrap gap-1">
+            <UBadge v-for="l in (editWh?.locations || [])" :key="l.id" color="neutral" variant="subtle" size="xs">{{ l.code }} · {{ l.kind }}</UBadge>
+            <span v-if="!(editWh?.locations || []).length" class="text-xs text-zinc-400">No locations yet</span>
+          </div>
+          <UFormField label="New location code"><UInput v-model="locForm.code" class="w-full" placeholder="e.g. C03-SHELF" @keydown.enter="addLocation" /></UFormField>
+          <UFormField label="Kind">
+            <USelect v-model="locForm.kind" class="w-full" :items="['SHELF', 'STAGING', 'DAMAGED', 'RETURNS'].map(k => ({ label: k, value: k }))" />
+          </UFormField>
+          <div class="sm:col-span-2">
+            <UButton size="xs" variant="soft" icon="i-lucide-plus" :loading="whSaving" :disabled="!locForm.code" @click="addLocation">Add location</UButton>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2 w-full">
+          <UButton variant="ghost" color="neutral" @click="editWh = null">Cancel</UButton>
+          <UButton :loading="whSaving" :disabled="!editWhForm.name" @click="saveWarehouse">Save changes</UButton>
         </div>
       </template>
     </UModal>

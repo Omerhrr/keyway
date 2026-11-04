@@ -1,11 +1,12 @@
-// Keyway PWA service worker v2
+// Keyway PWA service worker v3
 // - navigations: network-first -> cache -> /offline.html
 // - build assets (/_nuxt/): stale-while-revalidate (instant loads, bg refresh)
 // - other same-origin GETs: network-first with cache fallback
 // - API traffic is never cached (operational + financial data must be fresh)
-const VERSION = 'keyway-v2'
+const VERSION = 'keyway-v3'
 const SHELL = ['/', '/login', '/offline.html', '/manifest.webmanifest', '/logo.svg',
-  '/icons/icon-192.png', '/icons/icon-512.png']
+  '/icons/icon-192.png', '/icons/icon-512.png',
+  '/icons/icon-maskable-192.png', '/icons/icon-maskable-512.png']
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()))

@@ -79,3 +79,4 @@ local-*
 /examples/
 /tests/
 backend/db/media/
+tool-results/

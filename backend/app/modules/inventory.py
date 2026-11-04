@@ -157,9 +157,75 @@ def create_warehouse(body: WarehouseIn, user: User = Depends(require_perm("inven
     if db.query(Warehouse).filter(Warehouse.code == body.code).first():
         raise HTTPException(400, "Warehouse code exists")
     w = Warehouse(**body.model_dump())
+    if w.is_default:  # only one default warehouse at a time
+        db.query(Warehouse).filter(Warehouse.is_default.is_(True)).update({"is_default": False},
+                                                                          synchronize_session=False)
     db.add(w)
     db.commit()
+    audit(db, user, "create", "warehouse", w.id, f"Warehouse {w.code} ({w.name}) created")
+    db.commit()
     return serialize(w)
+
+
+class WarehousePatch(BaseModel):
+    name: str | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    is_default: bool | None = None
+    is_active: bool | None = None
+
+
+@router.patch("/warehouses/{warehouse_id}")
+def update_warehouse(warehouse_id: int, body: WarehousePatch,
+                     user: User = Depends(require_perm("inventory.manage")), db: Session = Depends(get_db)):
+    w = db.get(Warehouse, warehouse_id)
+    if not w:
+        raise HTTPException(404, "Warehouse not found")
+    changes = {}
+    for f in ("name", "address", "city", "state", "is_default", "is_active"):
+        val = getattr(body, f)
+        if val is not None:
+            changes[f] = val
+            setattr(w, f, val)
+    if w.is_default and w.is_active is False:
+        raise HTTPException(400, "The default warehouse cannot be deactivated - set another default first")
+    if not db.query(Warehouse).filter(Warehouse.is_default.is_(True), Warehouse.is_active.is_(True)).first():
+        raise HTTPException(400, "At least one active default warehouse is required")
+    if w.is_default:
+        db.query(Warehouse).filter(Warehouse.id != w.id, Warehouse.is_default.is_(True)) \
+          .update({"is_default": False}, synchronize_session=False)
+    db.commit()
+    audit(db, user, "update", "warehouse", w.id, f"Warehouse {w.code} updated", data=changes)
+    db.commit()
+    return serialize(w)
+
+
+@router.delete("/warehouses/{warehouse_id}")
+def delete_warehouse(warehouse_id: int, user: User = Depends(require_perm("inventory.manage")), db: Session = Depends(get_db)):
+    """Remove a warehouse that has never held stock (typo cleanup). Warehouses
+    with balances, movements or reservations are deactivated instead."""
+    w = db.get(Warehouse, warehouse_id)
+    if not w:
+        raise HTTPException(404, "Warehouse not found")
+    if w.is_default:
+        raise HTTPException(400, "The default warehouse cannot be deleted - set another default first")
+    used = (db.query(InventoryBalance).filter(InventoryBalance.warehouse_id == warehouse_id).first()
+            or db.query(InventoryMovement).filter(InventoryMovement.warehouse_id == warehouse_id).first()
+            or db.query(StockReservation).filter(StockReservation.warehouse_id == warehouse_id).first()
+            or db.query(StockTransfer).filter((StockTransfer.from_warehouse_id == warehouse_id) |
+                                              (StockTransfer.to_warehouse_id == warehouse_id)).first()
+            or db.query(StockReceipt).filter(StockReceipt.warehouse_id == warehouse_id).first())
+    if used:
+        raise HTTPException(400, f"{w.name} already has stock history - deactivate it instead of deleting")
+    n_locs = db.query(WarehouseLocation).filter(WarehouseLocation.warehouse_id == warehouse_id).count()
+    db.query(WarehouseLocation).filter(WarehouseLocation.warehouse_id == warehouse_id).delete()
+    db.delete(w)
+    db.commit()
+    audit(db, user, "delete", "warehouse", warehouse_id,
+          f"Warehouse {w.code} ({w.name}) deleted ({n_locs} location(s) removed)")
+    db.commit()
+    return {"ok": True}
 
 
 @router.post("/locations")

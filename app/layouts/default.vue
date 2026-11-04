@@ -3,12 +3,14 @@ const { user, logout, can } = useAuth()
 const route = useRoute()
 const isVendorPortal = computed(() => user.value?.is_vendor)
 const { unread, items, markAllRead, markRead, startPolling, targetFor } = useNotifications()
-const { canInstall, install } = usePwa()
+const { canInstall, isIOS, standalone, installable, install } = usePwa()
+const { online } = useOnline()
 
 watch(() => user.value?.id, (id) => { if (id) startPolling() }, { immediate: true })
 
 const bellOpen = ref(false)
 const bellOpenMobile = ref(false)
+const showInstallHelp = ref(false)
 const fmtWhen = (s: string) => s ? new Date(s).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''
 
 interface NavItem { label: string; to: string; icon: string; perm?: string }
@@ -69,6 +71,8 @@ async function doLogout() {
 }
 
 async function installApp() {
+  // Chrome/Edge/Android fire beforeinstallprompt; iOS Safari needs manual steps
+  if (!canInstall && isIOS) { showInstallHelp.value = true; return }
   const ok = await install()
   if (ok) useToast().add({ title: 'Keyway installed', description: 'Launch it from your home screen.', color: 'success' })
 }
@@ -181,10 +185,15 @@ async function installApp() {
 
     <!-- Main -->
     <main class="flex-1 lg:pl-60 flex flex-col">
+      <!-- Offline banner -->
+      <div v-if="!online" class="bg-amber-500 text-white text-sm font-medium text-center py-1.5 px-4">
+        <UIcon name="i-lucide-wifi-off" class="w-4 h-4 inline-block align-[-2px] mr-1" />
+        You are offline - showing cached data. Changes will fail until the connection returns.
+      </div>
       <!-- Desktop topbar: notifications + install -->
       <div class="hidden lg:flex h-12 items-center justify-end gap-2 px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur sticky top-0 z-20">
-        <UButton v-if="canInstall" icon="i-lucide-download" size="xs" variant="soft" color="primary" @click="installApp">
-          Install app
+        <UButton v-if="installable" icon="i-lucide-download" size="xs" variant="soft" color="primary" @click="installApp">
+          {{ canInstall ? 'Install app' : 'Install on iPhone' }}
         </UButton>
         <UPopover v-model:open="bellOpen" :popper="{ placement: 'bottom-end' }">
           <UButton icon="i-lucide-bell" variant="ghost" color="neutral" aria-label="Notifications" class="relative">
@@ -242,5 +251,23 @@ async function installApp() {
         </button>
       </div>
     </nav>
+
+    <!-- iOS install help (Safari has no programmatic install prompt) -->
+    <UModal v-model:open="showInstallHelp" title="Install Keyway on your iPhone / iPad">
+      <template #body>
+        <ol class="list-decimal list-inside space-y-2.5 text-sm text-zinc-700 dark:text-zinc-300">
+          <li>Open <strong>keyway</strong> in <strong>Safari</strong> (installing requires Safari).</li>
+          <li>Tap the <strong>Share</strong> button <UIcon name="i-lucide-share" class="w-4 h-4 inline-block align-[-3px]" /> in the toolbar.</li>
+          <li>Scroll and tap <strong>Add to Home Screen</strong>.</li>
+          <li>Tap <strong>Add</strong> - Keyway launches full-screen like a native app.</li>
+        </ol>
+        <p class="text-xs text-zinc-400 mt-4">Already installed? This button hides itself when the app runs in standalone mode.</p>
+      </template>
+      <template #footer>
+        <div class="flex justify-end w-full">
+          <UButton color="primary" @click="showInstallHelp = false">Got it</UButton>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

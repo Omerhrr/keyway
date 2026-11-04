@@ -169,6 +169,49 @@ def delete_rule(rule_id: int, user: User = Depends(require_perm("settings.manage
     return {"ok": True}
 
 
+@router.post("/notification-rules/{rule_id}/test")
+def test_rule(rule_id: int, user: User = Depends(require_perm("settings.manage")),
+              db: Session = Depends(get_db)):
+    """Send one sample notification through this rule's routing + channel so
+    admins can verify targeting and delivery without waiting for a real event."""
+    from app.core.db import utcnow as _utcnow
+    r = db.get(NotificationRule, rule_id)
+    if not r:
+        raise HTTPException(404, "Rule not found")
+    ch = r.channel or "IN_APP"
+    title = f"[Test] {r.name}"
+    body = f"Sample notification for event {r.event_type}. Route: {r.target_scope}"
+    stamp = _utcnow().strftime("%Y%m%d%H%M%S%f")
+    created = []
+
+    def _push(uid):
+        n = Notification(channel=ch, user_id=uid, event_type=r.event_type, title=title,
+                         body=body, entity_type="notification_rule", entity_id=str(r.id),
+                         dedup_key=f"TEST:{r.id}:{stamp}:u{uid}", retries=0,
+                         status="UNREAD" if ch == "IN_APP" else "SENT")
+        if ch != "IN_APP":
+            n.status = notify_mod._deliver_external(db, ch, n)
+        db.add(n)
+        created.append(n)
+
+    if r.target_scope == "USER":
+        if r.user_id:
+            _push(r.user_id)
+    elif r.target_scope == "ROLE":
+        if r.role_name:
+            for u in (db.query(User).join(Role, User.role_id == Role.id)
+                      .filter(Role.name == r.role_name, User.is_active.is_(True)).all()):
+                _push(u.id)
+    else:
+        _push(None)  # staff-wide row
+    db.commit()
+    _audit(db, user, "test", "notification_rule", r.id,
+           f"Test notification for rule '{r.name}' sent to {len(created)} target(s) via {ch}")
+    db.commit()
+    failed = sum(1 for n in created if n.status == "FAILED")
+    return {"sent": len(created), "failed": failed, "channel": ch}
+
+
 @router.get("/audit")
 def audit_logs(user: User = Depends(require_staff), db: Session = Depends(get_db),
                entity_type: str = "", limit: int = 200):

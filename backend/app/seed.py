@@ -222,6 +222,7 @@ def seed_notification_rules(db):
         ("Unreconciled COD -> finance", "COD_RECORDED", "ROLE", "Finance Manager", None, "IN_APP"),
         ("Low stock -> warehouse", "LOW_STOCK", "ROLE", "Warehouse Manager", None, "IN_APP"),
         ("Order awaiting confirmation", "ORDER_UNCONFIRMED", "ALL_STAFF", "", None, "IN_APP"),
+        ("Order status changes -> ops", "ORDER_STATUS_CHANGED", "ROLE", "Operations Manager", None, "IN_APP"),
         ("Settlement ready -> vendor (WhatsApp)", "SETTLEMENT_READY", "ALL_STAFF", "", None, "IN_APP"),
     ]
     created = 0

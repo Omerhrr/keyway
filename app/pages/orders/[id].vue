@@ -193,6 +193,12 @@ async function recordAttempt() {
               {{ [order.delivery_street, order.delivery_area, order.delivery_city, order.delivery_state].filter(Boolean).join(', ') || 'No address on file' }}
             </p>
             <p v-if="order.instructions" class="text-xs text-zinc-400 mt-2 italic">"{{ order.instructions }}"</p>
+            <USeparator class="my-3" />
+            <p class="text-[10px] uppercase tracking-wide text-zinc-400 mb-0.5">Fulfilment warehouse</p>
+            <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <UIcon name="i-lucide-warehouse" class="w-4 h-4 text-primary-500" />
+              {{ order.warehouse_name || 'Not assigned' }}
+            </p>
           </div>
 
           <div v-if="order.original_message" class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">

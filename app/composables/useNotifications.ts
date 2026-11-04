@@ -16,7 +16,18 @@ export function useNotifications() {
       ])
       items.value = list
       unread.value = cnt?.count ?? 0
+      syncBadge(unread.value)
     } catch { /* offline or logged out - keep last state */ }
+  }
+
+  /** Mirror the unread count onto the PWA/app icon badge where supported. */
+  function syncBadge(count: number) {
+    if (!import.meta.client) return
+    try {
+      const nav = navigator as any
+      if (count > 0) nav.setAppBadge?.(count)
+      else nav.clearAppBadge?.()
+    } catch { /* badge API unsupported - ignore */ }
   }
 
   async function markAllRead() {
