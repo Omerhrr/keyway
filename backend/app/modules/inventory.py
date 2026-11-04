@@ -10,7 +10,7 @@ from app.core.money import naira_to_kobo
 from app.modules.identity_models import User
 from app.modules.inventory_models import (Warehouse, WarehouseLocation, InventoryBalance,
                                           InventoryMovement, StockReceipt, StockReceiptLine,
-                                          StockReservation)
+                                          StockReservation, StockTransfer)
 from app.modules.catalog_models import Product, ProductVariant
 from app.modules.vendors_models import Vendor
 
@@ -54,6 +54,15 @@ class ReceiptIn(BaseModel):
     batch_ref: str = ""
     notes: str = ""
     lines: list[ReceiptLineIn]
+
+
+class TransferIn(BaseModel):
+    product_id: int
+    variant_id: int = 0
+    from_warehouse_id: int
+    to_warehouse_id: int
+    qty: int
+    reason: str = ""
 
 
 def default_warehouse(db: Session) -> Warehouse:
@@ -175,12 +184,14 @@ def balances(user: User = Depends(require_staff), db: Session = Depends(get_db),
         query = query.filter(Product.name.ilike(f"%{q}%"))
     rows = query.order_by(Product.name).all()
     out = []
+    whs = {w.id: w.name for w in db.query(Warehouse).all()}
     for b, p, v in rows:
         available = b.qty_physical - b.qty_reserved
         if low_stock and available > p.reorder_level:
             continue
         out.append(serialize(b, product_name=p.name, sku=p.sku, variant_name="", vendor_name=v.name,
                              vendor_id=p.vendor_id, reorder_level=p.reorder_level,
+                             warehouse_name=whs.get(b.warehouse_id, ""),
                              qty_available=available, low_stock=available <= p.reorder_level,
                              value_kobo=available * (p.default_sell_price_kobo or 0)))
     return out
@@ -219,6 +230,8 @@ def adjust(body: AdjustIn, user: User = Depends(require_perm("inventory.manage")
     audit(db, user, "adjust", "inventory_balance", b.id, f"Stock adjust: {body.reason}",
           data={"delta_physical": body.delta_physical, "delta_damaged": body.delta_damaged})
     db.commit()
+    from app.modules.notify import run_automation_checks
+    run_automation_checks(db)  # low-stock alerts after adjustments (idempotent)
     return serialize(b)
 
 
@@ -303,4 +316,112 @@ def confirm_receipt(receipt_id: int, user: User = Depends(require_perm("inventor
     db.commit()
     audit(db, user, "confirm", "stock_receipt", r.id, f"Stock receipt {r.reference} confirmed")
     db.commit()
+    from app.modules.notify import run_automation_checks
+    run_automation_checks(db)  # low-stock alerts after stock changes (idempotent)
     return serialize(r)
+
+
+# ---- multi-warehouse stock transfers ----------------------------------------
+
+def _transfer_row(db, t: StockTransfer):
+    p = db.get(Product, t.product_id)
+    v = db.get(Vendor, p.vendor_id) if p else None
+    fw = db.get(Warehouse, t.from_warehouse_id)
+    tw = db.get(Warehouse, t.to_warehouse_id)
+    return serialize(t, product_name=p.name if p else "", sku=p.sku if p else "",
+                     vendor_name=v.name if v else "", vendor_id=p.vendor_id if p else None,
+                     from_warehouse_name=fw.name if fw else "", to_warehouse_name=tw.name if tw else "")
+
+
+@router.get("/transfers")
+def list_transfers(user: User = Depends(require_staff), db: Session = Depends(get_db),
+                   status: str = "", limit: int = 100):
+    query = db.query(StockTransfer)
+    if status:
+        query = query.filter(StockTransfer.status == status)
+    rows = query.order_by(StockTransfer.id.desc()).limit(min(limit, 300)).all()
+    return [_transfer_row(db, t) for t in rows]
+
+
+@router.post("/transfers")
+def create_transfer(body: TransferIn, user: User = Depends(require_perm("inventory.manage")),
+                    db: Session = Depends(get_db)):
+    """Move stock between warehouses. Two-phase: create (IN_TRANSIT) then receive.
+    Source available stock must cover the transfer - stock never goes negative."""
+    if body.qty <= 0:
+        raise HTTPException(400, "Quantity must be positive")
+    if body.from_warehouse_id == body.to_warehouse_id:
+        raise HTTPException(400, "Source and destination warehouse must differ")
+    src = db.get(Warehouse, body.from_warehouse_id)
+    dst = db.get(Warehouse, body.to_warehouse_id)
+    if not src or not dst:
+        raise HTTPException(404, "Warehouse not found")
+    if not src.is_active or not dst.is_active:
+        raise HTTPException(400, "Both warehouses must be active")
+    p = db.get(Product, body.product_id)
+    if not p:
+        raise HTTPException(404, "Product not found")
+    sb = get_or_create_balance(db, body.product_id, body.variant_id, body.from_warehouse_id)
+    available = sb.qty_physical - sb.qty_reserved
+    if available < body.qty:
+        raise HTTPException(400, f"Insufficient stock at {src.name}: {available} available, {body.qty} requested")
+    sb.qty_physical -= body.qty
+    sb.qty_in_transit = (sb.qty_in_transit or 0) + body.qty
+    t = StockTransfer(reference="PENDING", product_id=body.product_id, variant_id=body.variant_id or 0,
+                      from_warehouse_id=body.from_warehouse_id, to_warehouse_id=body.to_warehouse_id,
+                      qty=body.qty, reason=body.reason, status="IN_TRANSIT", created_by_user_id=user.id)
+    db.add(t)
+    db.flush()
+    t.reference = next_ref(db, StockTransfer, "reference", "TRF")
+    _movement(db, body.product_id, body.variant_id, body.from_warehouse_id, "TRANSFER_OUT", -body.qty,
+              body.reason or f"Transfer to {dst.name}", "stock_transfer", t.id, user)
+    db.commit()
+    audit(db, user, "create", "stock_transfer", t.id,
+          f"Transfer {t.reference}: {body.qty} x {p.name} {src.code} -> {dst.code}")
+    db.commit()
+    return _transfer_row(db, t)
+
+
+@router.post("/transfers/{transfer_id}/receive")
+def receive_transfer(transfer_id: int, user: User = Depends(require_perm("inventory.manage")),
+                     db: Session = Depends(get_db)):
+    t = db.get(StockTransfer, transfer_id)
+    if not t:
+        raise HTTPException(404, "Transfer not found")
+    if t.status != "IN_TRANSIT":
+        raise HTTPException(400, f"Transfer already {t.status}")
+    dbb = get_or_create_balance(db, t.product_id, t.variant_id, t.to_warehouse_id)
+    dbb.qty_physical += t.qty
+    sb = get_or_create_balance(db, t.product_id, t.variant_id, t.from_warehouse_id)
+    sb.qty_in_transit = max(0, (sb.qty_in_transit or 0) - t.qty)
+    dst = db.get(Warehouse, t.to_warehouse_id)
+    _movement(db, t.product_id, t.variant_id, t.to_warehouse_id, "TRANSFER_IN", t.qty,
+              t.reason or f"Received from transfer {t.reference}", "stock_transfer", t.id, user)
+    t.status = "RECEIVED"
+    t.received_at = utcnow()
+    db.commit()
+    audit(db, user, "receive", "stock_transfer", t.id, f"Transfer {t.reference} received at {dst.name if dst else t.to_warehouse_id}")
+    db.commit()
+    from app.modules.notify import run_automation_checks
+    run_automation_checks(db)
+    return _transfer_row(db, t)
+
+
+@router.post("/transfers/{transfer_id}/cancel")
+def cancel_transfer(transfer_id: int, user: User = Depends(require_perm("inventory.manage")),
+                    db: Session = Depends(get_db)):
+    t = db.get(StockTransfer, transfer_id)
+    if not t:
+        raise HTTPException(404, "Transfer not found")
+    if t.status != "IN_TRANSIT":
+        raise HTTPException(400, f"Transfer already {t.status}")
+    sb = get_or_create_balance(db, t.product_id, t.variant_id, t.from_warehouse_id)
+    sb.qty_physical += t.qty
+    sb.qty_in_transit = max(0, (sb.qty_in_transit or 0) - t.qty)
+    _movement(db, t.product_id, t.variant_id, t.from_warehouse_id, "TRANSFER_IN", t.qty,
+              f"Transfer {t.reference} cancelled - stock returned", "stock_transfer", t.id, user)
+    t.status = "CANCELLED"
+    db.commit()
+    audit(db, user, "cancel", "stock_transfer", t.id, f"Transfer {t.reference} cancelled, stock returned to source")
+    db.commit()
+    return _transfer_row(db, t)

@@ -92,6 +92,23 @@ class StockReceiptLine(Base):
     note: Mapped[str] = mapped_column(String(255), default="")
 
 
+class StockTransfer(Base):
+    __tablename__ = "stock_transfers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reference: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("products.id"), index=True)
+    variant_id: Mapped[int] = mapped_column(Integer, default=0)
+    from_warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    to_warehouse_id: Mapped[int] = mapped_column(ForeignKey("warehouses.id"), index=True)
+    qty: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(255), default="")
+    # IN_TRANSIT | RECEIVED | CANCELLED
+    status: Mapped[str] = mapped_column(String(20), default="IN_TRANSIT", index=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class StockReservation(Base):
     __tablename__ = "stock_reservations"
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -211,6 +211,32 @@ TEMPLATES = [
 ]
 
 
+def seed_notification_rules(db):
+    """Idempotently install the default notification rules (runs on every startup,
+    so existing databases get upgraded in place)."""
+    from app.modules.activity_models import NotificationRule
+    defaults = [
+        ("WhatsApp order detected", "NEW_WHATSAPP_ORDER", "ALL_STAFF", "", None, "IN_APP"),
+        ("Delivery failed -> managers", "DELIVERY_FAILED", "ROLE", "Operations Manager", None, "IN_APP"),
+        ("COD discrepancy -> finance", "COD_DISCREPANCY", "ROLE", "Finance Manager", None, "IN_APP"),
+        ("Unreconciled COD -> finance", "COD_RECORDED", "ROLE", "Finance Manager", None, "IN_APP"),
+        ("Low stock -> warehouse", "LOW_STOCK", "ROLE", "Warehouse Manager", None, "IN_APP"),
+        ("Order awaiting confirmation", "ORDER_UNCONFIRMED", "ALL_STAFF", "", None, "IN_APP"),
+        ("Settlement ready -> vendor (WhatsApp)", "SETTLEMENT_READY", "ALL_STAFF", "", None, "IN_APP"),
+    ]
+    created = 0
+    for name, event, scope, role, user_id, channel in defaults:
+        if db.query(NotificationRule).filter(NotificationRule.name == name).first():
+            continue
+        db.add(NotificationRule(name=name, event_type=event, target_scope=scope,
+                                role_name=role, user_id=user_id, channel=channel, enabled=True))
+        created += 1
+    if created:
+        db.commit()
+        print(f"[seed] notification rules installed: {created}")
+    return created
+
+
 def seed_if_empty(db):
     if db.query(User).count() > 0:
         return False

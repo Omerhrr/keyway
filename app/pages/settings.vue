@@ -1,9 +1,11 @@
 <script setup lang="ts">
+const { can } = useAuth()
 const tab = ref('users')
 const tabs = [
   { label: 'Staff & access', value: 'users', icon: 'i-lucide-users' },
   { label: 'Roles', value: 'roles', icon: 'i-lucide-shield' },
   { label: 'Pricing rules', value: 'charges', icon: 'i-lucide-tags' },
+  { label: 'Notifications', value: 'notify', icon: 'i-lucide-bell-ring' },
   { label: 'WhatsApp', value: 'whatsapp', icon: 'i-lucide-message-circle' },
 ]
 
@@ -23,6 +25,7 @@ async function load() {
       api('/users'), api('/roles'), api('/charges/rules'), api('/whatsapp/account'), api('/whatsapp/templates'), api('/vendors'),
     ])
     users.value = u; roles.value = r; rules.value = c; account.value = a; templates.value = t; vendorsList.value = v
+    await loadNotifications()
   } finally { loading.value = false }
 }
 onMounted(load)
@@ -63,6 +66,71 @@ async function createRule() {
 async function toggleUser(u: any) {
   await api(`/users/${u.id}`, { method: 'PATCH', body: { is_active: !u.is_active } })
   await load()
+}
+
+// ---- Notification rules (PRD: advanced notification rules) ----
+const nRules = ref<any[]>([])
+const nEvents = ref<any[]>([])
+const nChannels = ref<string[]>([])
+const showNRule = ref(false)
+const nForm = reactive({ name: '', event_type: 'NEW_WHATSAPP_ORDER', target_scope: 'ALL_STAFF', role_name: '', user_id: 0, channel: 'IN_APP' })
+const checking = ref(false)
+
+async function loadNotifications() {
+  const r = await api('/notification-rules')
+  nRules.value = r.rules; nEvents.value = r.events; nChannels.value = r.channels
+}
+
+const canManageNotify = computed(() => can('settings.manage'))
+
+async function createNRule() {
+  saving.value = true
+  try {
+    await api('/notification-rules', { method: 'POST', body: {
+      name: nForm.name, event_type: nForm.event_type, target_scope: nForm.target_scope,
+      role_name: nForm.target_scope === 'ROLE' ? nForm.role_name : '',
+      user_id: nForm.target_scope === 'USER' ? nForm.user_id : null,
+      channel: nForm.channel,
+    } })
+    useToast().add({ title: 'Notification rule created', color: 'success' })
+    showNRule.value = false
+    nForm.name = ''
+    await loadNotifications()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { saving.value = false }
+}
+
+async function toggleNRule(r: any) {
+  try {
+    await api(`/notification-rules/${r.id}`, { method: 'PATCH', body: { enabled: !r.enabled } })
+    await loadNotifications()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  }
+}
+
+async function deleteNRule(r: any) {
+  try {
+    await api(`/notification-rules/${r.id}`, { method: 'DELETE' })
+    useToast().add({ title: 'Rule deleted', color: 'success' })
+    await loadNotifications()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  }
+}
+
+async function runChecks() {
+  checking.value = true
+  try {
+    const r = await api('/notifications/run-checks', { method: 'POST' })
+    useToast().add({ title: r.total ? `${r.total} new alert(s)` : 'Everything looks good',
+                     description: r.total ? Object.entries(r.created).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(', ') : 'No low stock or unconfirmed orders detected.',
+                     color: r.total ? 'warning' : 'success' })
+    await loadNotifications()
+  } catch (e) {
+    useToast().add({ title: 'Failed', description: errMsg(e), color: 'error' })
+  } finally { checking.value = false }
 }
 
 // ---- WhatsApp Cloud API (Phase 6A) ----
@@ -186,6 +254,53 @@ function copyWebhook() {
       </DataTable>
     </template>
 
+    <!-- NOTIFICATIONS -->
+    <template v-else-if="tab === 'notify'">
+      <div class="grid lg:grid-cols-3 gap-5">
+        <div class="lg:col-span-2">
+          <div class="flex items-center gap-2 mb-3 flex-wrap">
+            <UButton v-if="canManageNotify" icon="i-lucide-plus" @click="showNRule = true">New rule</UButton>
+            <UButton v-if="canManageNotify" :loading="checking" variant="soft" color="neutral" icon="i-lucide-refresh-ccw" @click="runChecks">
+              Run checks now
+            </UButton>
+            <p class="text-xs text-zinc-400 ml-auto">Checks: low stock vs reorder level + orders awaiting confirmation. Idempotent - no duplicate alerts while one is unread.</p>
+          </div>
+          <DataTable :columns="[
+            { key: 'name', label: 'Rule' },
+            { key: 'event_label', label: 'Event' },
+            { key: 'target', label: 'Target' },
+            { key: 'channel', label: 'Channel' },
+            { key: 'enabled', label: 'Enabled' },
+            { key: 'actions', label: '' },
+          ]" :rows="nRules.map(r => ({
+            ...r,
+            event_label: (nEvents.find(e => e.event_type === r.event_type)?.label) || r.event_type,
+            target: r.target_scope === 'ROLE' ? `Role: ${r.role_name}` : r.target_scope === 'USER' ? `User #${r.user_id}` : 'All staff',
+          }))" :loading="loading" empty-title="No rules" empty-hint="With no rules, staff notifications go to everyone in-app.">
+            <template #name="{ row }"><span class="font-medium text-zinc-800 dark:text-zinc-200">{{ row.name }}</span></template>
+            <template #channel="{ row }">
+              <UBadge :color="row.channel === 'IN_APP' ? 'neutral' : row.channel === 'WHATSAPP' ? 'success' : 'info'" variant="subtle" size="xs">{{ row.channel }}</UBadge>
+            </template>
+            <template #enabled="{ row }">
+              <USwitch v-if="canManageNotify" :model-value="row.enabled" size="sm" @update:model-value="toggleNRule(row)" />
+              <UBadge v-else :color="row.enabled ? 'success' : 'neutral'" variant="subtle" size="xs">{{ row.enabled ? 'on' : 'off' }}</UBadge>
+            </template>
+            <template #actions="{ row }">
+              <UButton v-if="canManageNotify" size="xs" variant="ghost" color="error" icon="i-lucide-trash-2" @click.stop="deleteNRule(row)" aria-label="Delete rule" />
+            </template>
+          </DataTable>
+        </div>
+        <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5 self-start">
+          <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-1 text-sm">Events that can trigger notifications</h3>
+          <p class="text-xs text-zinc-400 mb-2">Raised by order intake, delivery, COD and settlement flows.</p>
+          <div v-for="e in nEvents" :key="e.event_type" class="py-1.5 border-b last:border-0 border-zinc-100 dark:border-zinc-800/70">
+            <p class="text-sm text-zinc-700 dark:text-zinc-300">{{ e.label }}</p>
+            <p class="text-[11px] text-zinc-400"><code>{{ e.event_type }}</code> · typical audience: {{ e.audience }}</p>
+          </div>
+        </div>
+      </div>
+    </template>
+
     <!-- WHATSAPP -->
     <template v-else-if="tab === 'whatsapp'">
       <div class="grid lg:grid-cols-2 gap-5">
@@ -277,6 +392,42 @@ function copyWebhook() {
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showRule = false">Cancel</UButton>
           <UButton :loading="saving" @click="createRule">Create</UButton>
+        </div>
+      </template>
+    </UModal>
+    <!-- new notification rule modal -->
+    <UModal v-model:open="showNRule" title="New notification rule">
+      <template #body>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <UFormField label="Rule name" class="sm:col-span-2"><UInput v-model="nForm.name" class="w-full" placeholder="e.g. Low stock -> warehouse manager" /></UFormField>
+          <UFormField label="Event">
+            <USelect v-model="nForm.event_type" class="w-full" :items="nEvents.map(e => ({ label: e.label, value: e.event_type }))" />
+          </UFormField>
+          <UFormField label="Channel">
+            <USelect v-model="nForm.channel" class="w-full" :items="nChannels.map(c => ({ label: c === 'IN_APP' ? 'In-app' : c, value: c }))" />
+          </UFormField>
+          <UFormField label="Target">
+            <USelect v-model="nForm.target_scope" class="w-full" :items="[
+              { label: 'All staff', value: 'ALL_STAFF' },
+              { label: 'A specific role', value: 'ROLE' },
+              { label: 'One user', value: 'USER' },
+            ]" />
+          </UFormField>
+          <UFormField v-if="nForm.target_scope === 'ROLE'" label="Role">
+            <USelect v-model="nForm.role_name" class="w-full" :items="(roles?.roles || []).map(r => ({ label: r.name, value: r.name }))" />
+          </UFormField>
+          <UFormField v-if="nForm.target_scope === 'USER'" label="User">
+            <USelect v-model="nForm.user_id" class="w-full" :items="users.filter(u => !u.is_vendor).map(u => ({ label: `${u.full_name} (${u.email})`, value: u.id }))" />
+          </UFormField>
+          <p v-if="nForm.channel !== 'IN_APP'" class="text-xs text-amber-600 sm:col-span-2">
+            {{ nForm.channel }} delivery attempts the real channel (WhatsApp uses the Cloud API when configured). Undeliverable messages are marked FAILED and can be retried from the audit view.
+          </p>
+        </div>
+      </template>
+      <template #footer>
+        <div class="flex justify-end gap-2 w-full">
+          <UButton variant="ghost" color="neutral" @click="showNRule = false">Cancel</UButton>
+          <UButton :loading="saving" :disabled="!nForm.name || (nForm.target_scope === 'ROLE' && !nForm.role_name) || (nForm.target_scope === 'USER' && !nForm.user_id)" @click="createNRule">Create</UButton>
         </div>
       </template>
     </UModal>

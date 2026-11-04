@@ -60,10 +60,14 @@ async def unhandled(request: Request, exc: Exception):
 def startup():
     # SQLite dev database: create schema, then seed demo data on first boot.
     Base.metadata.create_all(bind=engine)
-    from app.seed import seed_if_empty
+    from app.seed import seed_if_empty, seed_notification_rules
     db = SessionLocal()
     try:
-        seed_if_empty(db)
+        if seed_if_empty(db):
+            seed_notification_rules(db)
+        else:
+            # existing database: still upgrade default rules idempotently
+            seed_notification_rules(db)
     finally:
         db.close()
     log.info("Keyway API ready")
