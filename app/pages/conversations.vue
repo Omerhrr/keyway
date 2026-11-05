@@ -18,6 +18,8 @@ async function load() {
     if (statusFilter.value && statusFilter.value !== 'ALL') params.set('status', statusFilter.value)
     conversations.value = await api(`/conversations?${params}`)
     if (selected.value && !conversations.value.find((c: any) => c.id === selected.value.id)) selected.value = null
+  } catch (e) {
+    useToast().add({ title: 'Could not load conversations', description: errMsg(e), color: 'error', icon: 'i-lucide-circle-alert' })
   } finally { loading.value = false }
 }
 

@@ -9,6 +9,8 @@ Outbound replies go through the Cloud API when configured, otherwise they are
 recorded as simulated messages so the pipeline never breaks in demo mode.
 """
 import base64
+import hashlib
+import hmac
 import json
 import uuid
 from pathlib import Path
@@ -34,6 +36,9 @@ from app.modules.conversations import send_outbound_text
 from app.modules import whatsapp_cloud as cloud
 
 router = APIRouter(prefix="/api/whatsapp", tags=["whatsapp"])
+
+# inbound media guard: decoded attachments above this size are rejected (DoS guard)
+MAX_MEDIA_BYTES = 10 * 1024 * 1024
 
 # Intents that produce order drafts
 DRAFT_INTENTS = {"NEW_ORDER"}
@@ -343,12 +348,16 @@ def _decode_media(data_url: str) -> tuple[bytes, str]:
     if raw.startswith("data:"):
         head, _, raw = raw.partition(",")
         mime = head[5:].split(";")[0]
+    if len(raw) > (MAX_MEDIA_BYTES // 3) * 4 + 256:  # base64 expands by 4/3
+        raise HTTPException(413, "Media payload too large (max 10 MB)")
     try:
         blob = base64.b64decode(raw, validate=False)
     except Exception:
         raise HTTPException(400, "media_b64 is not valid base64")
     if not blob:
         raise HTTPException(400, "media_b64 decoded to empty payload")
+    if len(blob) > MAX_MEDIA_BYTES:
+        raise HTTPException(413, "Media payload too large (max 10 MB)")
     return blob, mime
 
 
@@ -430,7 +439,10 @@ def webhook_verify(request: Request, db: Session = Depends(get_db)):
     token matches."""
     creds = cloud.effective_credentials(db)
     params = request.query_params
-    if params.get("hub.mode") == "subscribe" and params.get("hub.verify_token") == creds["verify_token"]:
+    provided = params.get("hub.verify_token") or ""
+    expected = creds["verify_token"] or ""
+    if params.get("hub.mode") == "subscribe" and expected \
+            and hmac.compare_digest(provided, expected):
         return int(params.get("hub.challenge") or 0) if (params.get("hub.challenge") or "").isdigit() \
             else (params.get("hub.challenge") or "")
     raise HTTPException(status_code=403, detail="Verification failed")

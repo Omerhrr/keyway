@@ -9,6 +9,40 @@
 <script setup lang="ts">
 const { bind, updateReady, applyUpdate } = usePwa()
 
+// Per-page document titles: "Orders · Keyway" instead of one static title.
+const route = useRoute()
+const pageTitles: Record<string, string> = {
+  '/dashboard': 'Dashboard',
+  '/conversations': 'WhatsApp Inbox',
+  '/drafts': 'Order Drafts',
+  '/orders': 'Orders',
+  '/confirmations': 'Confirmations',
+  '/dispatch': 'Dispatch',
+  '/vendors': 'Vendors',
+  '/catalog': 'Catalog',
+  '/inventory': 'Inventory & Warehouse',
+  '/customers': 'Customers',
+  '/cod': 'COD Collections',
+  '/settlements': 'Settlements',
+  '/finance': 'Finance & Ledger',
+  '/reports': 'Reports',
+  '/settings': 'Settings',
+  '/audit': 'Audit Trail',
+  '/portal': 'Vendor Portal',
+  '/portal/orders': 'My Orders',
+  '/portal/inventory': 'My Stock',
+  '/portal/statement': 'My Statement',
+}
+useHead({
+  title: () => {
+    if (route.path === '/login') return 'Sign in · Keyway'
+    const base = pageTitles[route.path]
+      || (route.path.startsWith('/portal') ? 'Vendor Portal' : undefined)
+      || (route.path.startsWith('/orders/') ? 'Order' : undefined)
+    return base ? `${base} · Keyway` : 'Keyway - Logistics Operations'
+  },
+})
+
 onMounted(() => {
   // Service worker only in production builds: in dev, Vite serves mutable
   // module URLs that must never be cached (stale assets break hydration).

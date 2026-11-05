@@ -6,7 +6,8 @@ const vendors = ref<any[]>([])
 
 async function load() {
   loading.value = true
-  try { settlements.value = await api('/settlements') } finally { loading.value = false }
+  try { settlements.value = await api('/settlements') }
+  catch (e) { useToast().add({ title: 'Could not load settlements', description: errMsg(e), color: 'error', icon: 'i-lucide-circle-alert' }) } finally { loading.value = false }
 }
 onMounted(async () => {
   load()

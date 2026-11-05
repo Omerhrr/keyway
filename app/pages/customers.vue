@@ -5,7 +5,8 @@ const q = ref('')
 
 async function load() {
   loading.value = true
-  try { customers.value = await api(`/customers?q=${q.value}`) } finally { loading.value = false }
+  try { customers.value = await api(`/customers?q=${encodeURIComponent(q.value)}`) }
+  catch (e) { useToast().add({ title: 'Could not load customers', description: errMsg(e), color: 'error', icon: 'i-lucide-circle-alert' }) } finally { loading.value = false }
 }
 onMounted(load)
 </script>

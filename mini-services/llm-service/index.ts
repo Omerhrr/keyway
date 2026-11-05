@@ -165,6 +165,9 @@ async function vision(body: VisionBody) {
 
 Bun.serve({
   port: PORT,
+  // internal service: loopback only - the FastAPI backend is the sole caller.
+  // Never expose the unauthenticated extraction endpoint to other interfaces.
+  hostname: process.env.LLM_HOST || '127.0.0.1',
   async fetch(req) {
     const url = new URL(req.url);
     try {

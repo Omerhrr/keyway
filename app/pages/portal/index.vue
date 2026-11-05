@@ -2,14 +2,18 @@
 definePageMeta({ layout: 'portal' })
 const s = ref<any>(null)
 const loading = ref(true)
+const loadError = ref('')
 const notes = ref<any[]>([])
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
+  loadError.value = ''
   try {
     const [sum, n] = await Promise.all([api('/portal/summary'), api('/notifications?limit=8')])
     s.value = sum; notes.value = n
-  } finally { loading.value = false }
-})
+  } catch (e) { loadError.value = errMsg(e) } finally { loading.value = false }
+}
+onMounted(load)
 
 const fmtWhen = (t: string) => t ? new Date(t).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''
 </script>
@@ -20,6 +24,11 @@ const fmtWhen = (t: string) => t ? new Date(t).toLocaleString('en-NG', { day: 'n
     <p class="text-sm text-zinc-500 mb-6">Welcome to your self-service portal - inventory, orders, COD collections and money owed to you.</p>
 
     <div v-if="loading" class="py-16 text-center text-zinc-400"><UIcon name="i-lucide-loader-circle" class="animate-spin w-6 h-6" /></div>
+    <div v-else-if="loadError" class="py-16 text-center">
+      <UIcon name="i-lucide-wifi-off" class="w-8 h-8 text-zinc-300 mx-auto mb-3" />
+      <p class="text-sm text-zinc-500 mb-4">We could not load your store right now. {{ loadError }}</p>
+      <UButton variant="outline" color="neutral" icon="i-lucide-refresh-cw" @click="load">Try again</UButton>
+    </div>
     <template v-else-if="s">
       <div class="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
         <StatCard label="Active orders" :value="s.orders_active" icon="i-lucide-package" tone="primary" to="/portal/orders" />

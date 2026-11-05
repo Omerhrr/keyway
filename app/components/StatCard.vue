@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { NuxtLink } from '#components'
+
 defineProps<{
   label: string
   value: string | number
@@ -19,7 +21,7 @@ const tones: Record<string, string> = {
 
 <template>
   <component
-    :is="to ? resolveComponent('NuxtLink') : 'div'"
+    :is="to ? NuxtLink : 'div'"
     :to="to"
     class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 flex gap-3 items-start hover:shadow-sm transition-shadow"
   >
@@ -27,9 +29,9 @@ const tones: Record<string, string> = {
       <UIcon :name="icon" class="w-5 h-5" />
     </div>
     <div class="min-w-0">
-      <p class="text-[11px] uppercase tracking-wide text-zinc-500 font-medium truncate">{{ label }}</p>
+      <p class="text-[11px] uppercase tracking-wide text-zinc-500 font-medium line-clamp-2 leading-snug break-words">{{ label }}</p>
       <p class="text-xl font-bold text-zinc-900 dark:text-white leading-tight truncate">{{ value }}</p>
-      <p v-if="sub" class="text-[11px] text-zinc-400 truncate">{{ sub }}</p>
+      <p v-if="sub" class="text-[11px] text-zinc-400 line-clamp-2 leading-snug">{{ sub }}</p>
     </div>
   </component>
 </template>

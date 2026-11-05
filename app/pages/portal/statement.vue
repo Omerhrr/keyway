@@ -3,7 +3,7 @@ definePageMeta({ layout: 'portal' })
 const data = ref<any>(null)
 const loading = ref(true)
 onMounted(async () => {
-  try { data.value = await api('/portal/statement') } finally { loading.value = false }
+  try { data.value = await api('/portal/statement') } catch { data.value = { lines: [] } } finally { loading.value = false }
 })
 
 const totals = computed(() => {
@@ -19,7 +19,8 @@ const totals = computed(() => {
     <div class="grid grid-cols-3 gap-3 mb-5">
       <StatCard label="Collections" :value="fmtNaira(totals.credits)" icon="i-lucide-banknote" tone="success" />
       <StatCard label="Charges & payouts" :value="fmtNaira(totals.debits)" icon="i-lucide-scissors" />
-      <StatCard label="Balance" :value="fmtNaira(totals.balance)" icon="i-lucide-wallet" tone="primary" />
+      <StatCard label="Balance" :value="fmtNaira(totals.balance)" icon="i-lucide-wallet" tone="primary"
+                :sub="totals.balance < 0 ? 'Charges currently exceed collections' : 'Money owed to you'" />
     </div>
 
     <DataTable :columns="[

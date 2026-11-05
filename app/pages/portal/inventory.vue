@@ -3,7 +3,7 @@ definePageMeta({ layout: 'portal' })
 const items = ref<any[]>([])
 const loading = ref(true)
 onMounted(async () => {
-  try { items.value = await api('/portal/inventory') } finally { loading.value = false }
+  try { items.value = await api('/portal/inventory') } catch { items.value = [] } finally { loading.value = false }
 })
 </script>
 

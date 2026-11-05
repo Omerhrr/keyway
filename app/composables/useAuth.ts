@@ -13,8 +13,10 @@ interface KeywayUser {
 
 export function useAuth() {
   const user = useState<KeywayUser | null>('kw-user', () => null)
-  const access = useCookie<string | null>('kw_access', { maxAge: 60 * 60 * 12, sameSite: 'lax' })
-  const refresh = useCookie<string | null>('kw_refresh', { maxAge: 60 * 60 * 24 * 14, sameSite: 'lax' })
+  // secure=true in production builds (https-only cookies); dev serves http
+  const kwSecure = process.env.NODE_ENV === 'production'
+  const access = useCookie<string | null>('kw_access', { maxAge: 60 * 60 * 12, sameSite: 'lax', secure: kwSecure })
+  const refresh = useCookie<string | null>('kw_refresh', { maxAge: 60 * 60 * 24 * 14, sameSite: 'lax', secure: kwSecure })
 
   const isLoggedIn = computed(() => !!user.value || !!access.value)
 

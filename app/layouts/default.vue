@@ -64,6 +64,11 @@ const visibleGroups = computed(() =>
 const mobileOpen = ref(false)
 const mobileNav = computed(() => visibleGroups.value.flatMap((g) => g.items))
 const primaryMobile = computed(() => mobileNav.value.slice(0, 4))
+const colorMode = useColorMode()
+const isDark = computed(() => colorMode.value === 'dark')
+function toggleTheme() {
+  colorMode.preference = isDark.value ? 'light' : 'dark'
+}
 
 async function doLogout() {
   logout()
@@ -177,6 +182,8 @@ async function installApp() {
               <p class="text-sm truncate">{{ user?.full_name }}</p>
               <p class="text-[11px] text-zinc-500 truncate">{{ user?.email }}</p>
             </div>
+            <UButton :icon="isDark ? 'i-lucide-sun' : 'i-lucide-moon'" variant="ghost" color="neutral" size="xs"
+                     :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'" @click="toggleTheme" />
             <UButton icon="i-lucide-log-out" variant="ghost" color="neutral" size="xs" @click="doLogout" aria-label="Log out" />
           </div>
         </div>
@@ -190,8 +197,10 @@ async function installApp() {
         <UIcon name="i-lucide-wifi-off" class="w-4 h-4 inline-block align-[-2px] mr-1" />
         You are offline - showing cached data. Changes will fail until the connection returns.
       </div>
-      <!-- Desktop topbar: notifications + install -->
+      <!-- Desktop topbar: theme, notifications + install -->
       <div class="hidden lg:flex h-12 items-center justify-end gap-2 px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur sticky top-0 z-20">
+        <UButton :icon="isDark ? 'i-lucide-sun' : 'i-lucide-moon'" size="xs" variant="ghost" color="neutral"
+                 :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'" @click="toggleTheme" />
         <UButton v-if="installable" icon="i-lucide-download" size="xs" variant="soft" color="primary" @click="installApp">
           {{ canInstall ? 'Install app' : 'Install on iPhone' }}
         </UButton>

@@ -1,11 +1,15 @@
 <script setup lang="ts">
 const loading = ref(true)
 const d = ref<any>(null)
+const loadError = ref('')
 const user = useAuth().user
 
-onMounted(async () => {
-  try { d.value = await api('/dashboard') } catch (e) { /* ignore */ } finally { loading.value = false }
-})
+async function load() {
+  loading.value = true
+  loadError.value = ''
+  try { d.value = await api('/dashboard') } catch (e) { loadError.value = errMsg(e) } finally { loading.value = false }
+}
+onMounted(load)
 
 const maxStatus = computed(() => Math.max(1, ...Object.values(d.value?.orders_by_status || {}) as number[]))
 const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}).map(([s, c]) => ({ status: s, count: c })))
@@ -22,6 +26,12 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
 
     <div v-if="loading" class="flex items-center gap-2 text-zinc-400 py-20 justify-center">
       <UIcon name="i-lucide-loader-circle" class="animate-spin" /> Loading dashboard…
+    </div>
+
+    <div v-else-if="loadError" class="py-20 text-center">
+      <UIcon name="i-lucide-wifi-off" class="w-8 h-8 text-zinc-300 mx-auto mb-3" />
+      <p class="text-sm text-zinc-500 mb-4">Could not load your dashboard. {{ loadError }}</p>
+      <UButton variant="outline" color="neutral" icon="i-lucide-refresh-cw" @click="load">Try again</UButton>
     </div>
 
     <template v-else-if="d">

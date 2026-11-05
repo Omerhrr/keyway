@@ -52,8 +52,11 @@ def health():
 
 @app.exception_handler(Exception)
 async def unhandled(request: Request, exc: Exception):
+    # Full detail goes to the log; the response body stays generic in production
+    # so internal paths/SQL/errors never leak to clients.
     log.exception("Unhandled error: %s", exc)
-    return JSONResponse(status_code=500, content={"detail": f"Internal error: {exc}"})
+    detail = "Internal server error" if settings.ENV == "production" else f"Internal error: {exc}"
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 
 @app.on_event("startup")

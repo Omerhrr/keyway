@@ -20,6 +20,8 @@ async function load() {
       api('/dispatch/deliveries'), api('/dispatch/riders'), api('/dispatch/carriers'), api('/dispatch/zones'),
     ])
     deliveries.value = d; riders.value = r; carriers.value = c; zones.value = z
+  } catch (e) {
+    useToast().add({ title: 'Could not load dispatch board', description: errMsg(e), color: 'error', icon: 'i-lucide-circle-alert' })
   } finally { loading.value = false }
 }
 onMounted(load)

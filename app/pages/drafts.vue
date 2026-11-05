@@ -13,6 +13,8 @@ async function load() {
   try {
     const params = filter.value ? `?status=${filter.value}` : ''
     drafts.value = await api(`/orders/drafts${params}`)
+  } catch (e) {
+    useToast().add({ title: 'Could not load drafts', description: errMsg(e), color: 'error', icon: 'i-lucide-circle-alert' })
   } finally { loading.value = false }
 }
 onMounted(load)

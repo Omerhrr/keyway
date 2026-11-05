@@ -151,7 +151,8 @@ def _post_message(creds: dict, payload: dict) -> dict:
 def download_media(db: Session, media_id: str) -> dict:
     """Download inbound media (voice notes, images, documents).
 
-    Returns {"bytes": b"...", "mime": str}."""
+    Returns {"bytes": b"...", "mime": str}. Rejects anything above 10 MB."""
+    MAX_BYTES = 10 * 1024 * 1024
     creds = effective_credentials(db)
     if not cloud_ready(creds):
         raise CloudAPIError("Cloud API not configured")
@@ -163,9 +164,18 @@ def download_media(db: Session, media_id: str) -> dict:
         url = meta.json().get("url")
         if not url:
             raise CloudAPIError("Media metadata returned no URL")
+        # refuse oversized downloads up front when Meta advertises the size
+        try:
+            declared = int(meta.json().get("file_size") or 0)
+        except (TypeError, ValueError):
+            declared = 0
+        if declared > MAX_BYTES:
+            raise CloudAPIError(f"Media too large ({declared} bytes)")
         blob = client.get(url, headers=headers)
         if blob.status_code >= 400:
             raise CloudAPIError(f"Media download failed: HTTP {blob.status_code}")
+    if len(blob.content) > MAX_BYTES:
+        raise CloudAPIError("Media too large (max 10 MB)")
     mime = meta.json().get("mime_type") or "application/octet-stream"
     return {"bytes": blob.content, "mime": mime}
 

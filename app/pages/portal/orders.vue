@@ -6,15 +6,21 @@ const q = ref('')
 
 async function load() {
   loading.value = true
-  try { orders.value = await api(`/portal/orders?q=${q.value}`) } finally { loading.value = false }
+  try { orders.value = await api(`/portal/orders?q=${encodeURIComponent(q.value)}`) }
+  catch { orders.value = [] }
+  finally { loading.value = false }
 }
 onMounted(load)
 
 const selected = ref<any>(null)
 const showDetail = ref(false)
 async function open(o: any) {
-  selected.value = await api(`/portal/orders/${o.id}`)
-  showDetail.value = true
+  try {
+    selected.value = await api(`/portal/orders/${o.id}`)
+    showDetail.value = true
+  } catch (e) {
+    useToast().add({ title: 'Could not load order', description: errMsg(e), color: 'error', icon: 'i-lucide-circle-alert' })
+  }
 }
 </script>
 

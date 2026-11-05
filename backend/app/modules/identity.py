@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from collections import defaultdict, deque
+import time
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db, utcnow
@@ -9,6 +12,41 @@ from app.core.audit import audit
 from app.modules.identity_models import User, Role, Permission, RolePermission
 
 router = APIRouter(prefix="/api", tags=["identity"])
+
+# ---- lightweight login brute-force guard (per API process) -----------------
+# Tracks failed attempts per (client IP, email). At MAX_LOGIN_FAILS within
+# LOCK_WINDOW seconds the pair is locked out until the window rolls off.
+# Deliberately in-memory: good enough for a single-node deployment; swap for
+# a shared store if the API ever runs multi-process.
+_LOGIN_FAILS: dict[str, deque[float]] = defaultdict(deque)
+_MAX_LOGIN_FAILS = 8
+_LOCK_WINDOW = 900.0  # 15 minutes
+
+
+def _throttle_key(request: Request, email: str) -> str:
+    ip = request.client.host if request.client else "unknown"
+    return f"{ip}:{(email or '').strip().lower()[:120]}"
+
+
+def _prune(dq: deque[float]) -> None:
+    now = time.monotonic()
+    while dq and now - dq[0] > _LOCK_WINDOW:
+        dq.popleft()
+
+
+def _assert_not_locked(key: str) -> None:
+    dq = _LOGIN_FAILS.get(key)
+    if dq is not None:
+        _prune(dq)
+        if len(dq) >= _MAX_LOGIN_FAILS:
+            raise HTTPException(status_code=429,
+                                detail="Too many failed login attempts - try again in 15 minutes")
+
+
+def _register_failure(key: str) -> None:
+    dq = _LOGIN_FAILS[key]
+    _prune(dq)
+    dq.append(time.monotonic())
 
 
 class LoginIn(BaseModel):
@@ -58,12 +96,16 @@ def _user_payload(db: Session, user: User) -> dict:
 
 
 @router.post("/auth/login")
-def login(body: LoginIn, db: Session = Depends(get_db)):
+def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
+    key = _throttle_key(request, body.email)
+    _assert_not_locked(key)
     user = db.query(User).filter(User.email == body.email.strip().lower()).first()
     if not user or not verify_password(body.password, user.password_hash):
+        _register_failure(key)
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is suspended")
+    _LOGIN_FAILS.pop(key, None)  # successful login clears the failure window
     user.last_login_at = utcnow()
     db.commit()
     return {
