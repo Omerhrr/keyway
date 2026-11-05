@@ -51,8 +51,12 @@ yarn-error.log*
 *.db
 *.db-shm
 *.db-wal
+*.db.meta
+*.db.restoring*
 *.sqlite
 *.sqlite3
+/backups/
+backend/db/pre-restore-*
 
 # pid / log files
 *.pid
