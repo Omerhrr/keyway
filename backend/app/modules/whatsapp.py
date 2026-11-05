@@ -352,10 +352,15 @@ def _decode_media(data_url: str) -> tuple[bytes, str]:
     return blob, mime
 
 
+ACCOUNT_PUBLIC_FIELDS = ["id", "display_name", "phone_number_id", "waba_id", "mode", "status", "created_at"]
+
+
 @router.get("/account")
 def account(user: User = Depends(require_staff), db: Session = Depends(get_db)):
     acc = get_account(db)
-    return serialize(acc, access_token_set=bool(acc.access_token_enc))
+    # never return access_token_enc - presence is signalled via access_token_set
+    return serialize(acc, fields=ACCOUNT_PUBLIC_FIELDS,
+                     access_token_set=bool(acc.access_token_enc))
 
 
 @router.get("/templates")
@@ -406,7 +411,8 @@ def update_account(body: AccountIn, user: User = Depends(require_perm("whatsapp.
         changes.append("access_token(set)")
     audit(db, user, "update", "whatsapp_account", acc.id, f"WhatsApp account updated: {', '.join(changes) or 'no-op'}")
     db.commit()
-    return serialize(acc, access_token_set=bool(acc.access_token_enc))
+    return serialize(acc, fields=ACCOUNT_PUBLIC_FIELDS,
+                     access_token_set=bool(acc.access_token_enc))
 
 
 @router.post("/account/test")
