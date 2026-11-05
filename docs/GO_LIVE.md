@@ -22,7 +22,8 @@ see `.env.example`). In production:
 
 The adapter (`backend/app/modules/whatsapp_cloud.py`) is complete: outbound
 text/templates, inbound media download, webhook signature verification,
-credential self-test. What you must supply from Meta:
+credential self-test. **Full step-by-step guide: `docs/WHATSAPP_SETUP.md`.**
+What you must supply from Meta:
 
 - [ ] Meta Business app with the **WhatsApp product** added; business verified.
 - [ ] `KEYWAY_WHATSAPP_ACCESS_TOKEN` — permanent **System User token** with
