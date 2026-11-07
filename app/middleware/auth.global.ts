@@ -1,12 +1,4 @@
-// Route -> permission (mirrors the sidebar). The API enforces the same rules; this just stops
-// users landing on pages that would only show 403 errors.
-const ROUTE_PERMS: [string, string][] = [
-  ['/dashboard', 'dashboard.view'], ['/drafts', 'orders.view'], ['/orders', 'orders.view'],
-  ['/dispatch', 'dispatch.view'], ['/vendors', 'vendors.view'], ['/catalog', 'catalog.view'],
-  ['/inventory', 'inventory.view'], ['/cod', 'cod.manage'], ['/settlements', 'settlements.manage'],
-  ['/finance', 'finance.manage'], ['/reports', 'reports.view'], ['/settings', 'settings.manage'],
-  ['/audit', 'audit.view'],
-]
+import { ROUTE_RULES } from '~/utils/access'
 
 export default defineNuxtRouteMiddleware(async (to) => {
   const { isLoggedIn, fetchMe, user, logout, can } = useAuth()
@@ -21,21 +13,22 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return
   }
 
-  // role-based routing: vendors live in the self-service portal, staff in the
-  // operations workspace. Prevents cross-role 403 crashes (e.g. a staff user
-  // opening /portal would hit vendor-only endpoints).
+  const mods = useModules()
+  await mods.load()
+
+  // Vendors live in the portal, staff in the main workspace.
   const isPortal = to.path.startsWith('/portal')
-  if (user.value?.is_vendor && !isPortal) {
-    return navigateTo('/portal')
-  }
-  if (!user.value?.is_vendor && isPortal) {
-    return navigateTo('/dashboard')
+  if (user.value?.is_vendor && !isPortal) return navigateTo('/portal')
+  if (!user.value?.is_vendor && isPortal) return navigateTo('/dashboard')
+  if (user.value?.is_vendor && !mods.on('portal')) {
+    logout()
+    return navigateTo('/login')
   }
   if (!user.value?.is_vendor) {
-    const rule = ROUTE_PERMS.find(([prefix]) => to.path === prefix || to.path.startsWith(prefix + '/'))
-    if (rule && !can(rule[1])) {
-      const home = ROUTE_PERMS.find(([, perm]) => can(perm))
-      return navigateTo(home && home[0] !== to.path ? home[0] : '/conversations', { replace: true })
+    const rule = ROUTE_RULES.find(([p]) => to.path === p || to.path.startsWith(p + '/'))
+    if (rule && !(mods.on(rule[2]) && rule[1].some((p) => can(p)))) {
+      const home = ROUTE_RULES.find(([p, perms, key]) => mods.on(key) && perms.some((x) => can(x)))
+      return navigateTo(home && home[0] !== to.path ? home[0] : '/login', { replace: true })
     }
   }
 })

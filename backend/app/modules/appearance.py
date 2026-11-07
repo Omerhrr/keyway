@@ -41,9 +41,23 @@ DEFAULT_DOCS = {
     "show_prepared_by": True,
     "show_signatures": False,
     "show_row_numbers": True,
+    "logo": "",
+    "font": "sans",
+    "header_style": "split",
+    "table_style": "striped",
+    "density": "comfortable",
+    "watermark": "",
+    "show_totals": True,
 }
 
-TEMPLATES = ("classic", "modern", "compact", "minimal")
+TEMPLATES = ("classic", "modern", "executive", "bold", "elegant", "ledger", "compact", "minimal", "receipt")
+FONTS = ("sans", "serif", "mono", "rounded")
+HEADERS = ("split", "centered", "banner", "stacked")
+TABLE_STYLES = ("striped", "lines", "boxed", "clean")
+DENSITIES = ("comfortable", "compact")
+PAPERS = ("A4", "A5", "A3", "Letter", "Legal", "Receipt")
+LOGO_MAX = 400_000  # characters of base64 text (about 300 KB of image)
+LOGO_RE = re.compile(r"^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$")
 
 
 def _load(db: Session, key: str, default: dict) -> dict:
@@ -92,6 +106,13 @@ class DocsIn(BaseModel):
     show_prepared_by: bool | None = None
     show_signatures: bool | None = None
     show_row_numbers: bool | None = None
+    show_totals: bool | None = None
+    logo: str | None = None
+    font: str | None = None
+    header_style: str | None = None
+    table_style: str | None = None
+    density: str | None = None
+    watermark: str | None = None
 
 
 @router.get("/public/branding")
@@ -148,14 +169,26 @@ def save_docs(body: DocsIn, user: User = Depends(require_perm("settings.manage")
         if f in d and d[f] is not None:
             cur[f] = _text(d[f], n, f)
     if d.get("paper") is not None:
-        if d["paper"] not in ("A4", "A5", "Letter"):
-            raise HTTPException(400, "Paper must be A4, A5 or Letter")
+        if d["paper"] not in PAPERS:
+            raise HTTPException(400, f"Paper must be one of {', '.join(PAPERS)}")
         cur["paper"] = d["paper"]
+    for f, allowed in (("font", FONTS), ("header_style", HEADERS), ("table_style", TABLE_STYLES), ("density", DENSITIES)):
+        if d.get(f) is not None:
+            if d[f] not in allowed:
+                raise HTTPException(400, f"{f.replace('_', ' ').title()} must be one of {', '.join(allowed)}")
+            cur[f] = d[f]
+    if "watermark" in d and d["watermark"] is not None:
+        cur["watermark"] = _text(d["watermark"], 30, "Watermark")
+    if "logo" in d and d["logo"] is not None:
+        logo = d["logo"]
+        if logo and (len(logo) > LOGO_MAX or not LOGO_RE.match(logo)):
+            raise HTTPException(400, "Logo must be a PNG, JPG or WebP picture under 300 KB")
+        cur["logo"] = logo
     if d.get("orientation") is not None:
         if d["orientation"] not in ("auto", "portrait", "landscape"):
             raise HTTPException(400, "Orientation must be auto, portrait or landscape")
         cur["orientation"] = d["orientation"]
-    for f in ("show_logo", "show_date", "show_prepared_by", "show_signatures", "show_row_numbers"):
+    for f in ("show_logo", "show_date", "show_prepared_by", "show_signatures", "show_row_numbers", "show_totals"):
         if d.get(f) is not None:
             cur[f] = bool(d[f])
     _save(db, "documents", cur, user)

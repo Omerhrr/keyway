@@ -11,6 +11,7 @@ async function load() {
 onMounted(load)
 
 const { printRecord } = useDocs()
+const { canOpen } = useModules()
 function printOrder() {
   const o = order.value
   if (!o) return
@@ -142,10 +143,10 @@ async function recordAttempt() {
       <!-- Actions -->
       <div class="flex flex-wrap gap-2 mb-6">
         <UButton v-if="nexts.length" icon="i-lucide-git-branch" variant="outline" @click="showStatus = true">Change status</UButton>
-        <UButton v-if="['CONFIRMED', 'PENDING_CUSTOMER_CONFIRMATION', 'CUSTOMER_CONFIRMED'].includes(order.status)" icon="i-lucide-phone-call" color="info" variant="soft" @click="showConfirm = true">Record confirmation</UButton>
+        <UButton v-if="canOpen('/confirmations') && ['CONFIRMED', 'PENDING_CUSTOMER_CONFIRMATION', 'CUSTOMER_CONFIRMED'].includes(order.status)" icon="i-lucide-phone-call" color="info" variant="soft" @click="showConfirm = true">Record confirmation</UButton>
         <UButton icon="i-lucide-printer" color="neutral" variant="outline" @click="printOrder">Print PDF</UButton>
-        <UButton v-if="order.status === 'READY_FOR_DISPATCH'" icon="i-lucide-truck" @click="openDispatch">Dispatch</UButton>
-        <UButton v-if="order.status === 'DELIVERED' && order.payment_method === 'COD'" icon="i-lucide-banknote" color="warning" variant="soft" @click="showCod = true">Record COD</UButton>
+        <UButton v-if="canOpen('/dispatch') && order.status === 'READY_FOR_DISPATCH'" icon="i-lucide-truck" @click="openDispatch">Dispatch</UButton>
+        <UButton v-if="canOpen('/cod') && order.status === 'DELIVERED' && order.payment_method === 'COD'" icon="i-lucide-banknote" color="warning" variant="soft" @click="showCod = true">Record COD</UButton>
         <UButton v-for="n in nexts.filter(s => s === 'CANCELLED')" :key="n" icon="i-lucide-ban" color="error" variant="soft" @click="askStatus(n)">Cancel order</UButton>
       </div>
 

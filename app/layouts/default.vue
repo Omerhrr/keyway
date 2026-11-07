@@ -5,6 +5,7 @@ const isVendorPortal = computed(() => user.value?.is_vendor)
 const { unread, items, markAllRead, markRead, startPolling, targetFor } = useNotifications()
 const { canInstall, isIOS, standalone, installable, install } = usePwa()
 const { online } = useOnline()
+const { canOpen } = useModules()
 
 watch(() => user.value?.id, (id) => { if (id) startPolling() }, { immediate: true })
 
@@ -57,7 +58,7 @@ const groups = computed<NavGroup[]>(() => [
 
 const visibleGroups = computed(() =>
   groups.value
-    .map((g) => ({ ...g, items: g.items.filter((i) => !i.perm || can(i.perm)) }))
+    .map((g) => ({ ...g, items: g.items.filter((i) => canOpen(i.to)) }))
     .filter((g) => g.items.length),
 )
 
@@ -92,7 +93,7 @@ async function installApp() {
         <BrandLogo :size="32" />
         <div>
           <p class="font-bold text-lg leading-none text-zinc-900 dark:text-white">{{ brand.brand_name }}</p>
-          <p class="text-[11px] text-zinc-500">Logistics Operations</p>
+          <p class="text-[11px] text-zinc-500 truncate max-w-[150px]">{{ brand.tagline }}</p>
         </div>
       </div>
       <nav class="flex-1 overflow-y-auto thin-scroll px-3 py-4 space-y-5">

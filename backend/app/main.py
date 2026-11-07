@@ -1,7 +1,7 @@
 """Keyway API - modular monolith entrypoint."""
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
@@ -28,7 +28,9 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
+from app.modules.access import access_gate, router as access_router  # noqa: E402
+
+app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan, dependencies=[Depends(access_gate)])
 
 _origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
@@ -62,7 +64,7 @@ from app.modules.portal import router as portal_router  # noqa: E402
 for r in (identity_router, vendors_router, catalog_router, inventory_router, orders_router,
           customers_router, confirmations_router, conversations_router, whatsapp_router,
           delivery_router, cod_router, charges_router, settlements_router, ledger_router,
-          reports_router, activity_router, portal_router, appearance_router):
+          reports_router, activity_router, portal_router, appearance_router, access_router):
     app.include_router(r)
 
 

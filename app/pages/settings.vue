@@ -1,7 +1,8 @@
 <script setup lang="ts">
 const { can } = useAuth()
 const tab = ref('users')
-const tabs = [
+const { on } = useModules()
+const allTabs = [
   { label: 'Staff & access', value: 'users', icon: 'i-lucide-users' },
   { label: 'Warehouses', value: 'warehouses', icon: 'i-lucide-warehouse' },
   { label: 'Roles', value: 'roles', icon: 'i-lucide-shield' },
@@ -9,8 +10,11 @@ const tabs = [
   { label: 'Notifications', value: 'notify', icon: 'i-lucide-bell-ring' },
   { label: 'WhatsApp', value: 'whatsapp', icon: 'i-lucide-message-circle' },
   { label: 'Appearance', value: 'appearance', icon: 'i-lucide-palette' },
+  { label: 'Features', value: 'modules', icon: 'i-lucide-toggle-right' },
   { label: 'Printed documents', value: 'documents', icon: 'i-lucide-file-text' },
 ]
+
+const tabs = computed(() => allTabs.filter((t) => t.value !== 'whatsapp' || on('whatsapp')))
 
 const users = ref<any[]>([])
 const roles = ref<any>(null)
@@ -25,9 +29,12 @@ const saving = ref(false)
 async function load() {
   loading.value = true
   try {
+    const soft = (p: Promise<any>, empty: any = null) => p.catch(() => empty)
     const [u, r, c, a, t, v, w] = await Promise.all([
-      api('/users'), api('/roles'), api('/charges/rules'), api('/whatsapp/account'), api('/whatsapp/templates'), api('/vendors'),
-      api('/inventory/warehouses'),
+      api('/users'), api('/roles'), api('/charges/rules'),
+      on('whatsapp') ? soft(api('/whatsapp/account')) : Promise.resolve(null),
+      on('whatsapp') ? soft(api('/whatsapp/templates'), []) : Promise.resolve([]),
+      api('/vendors'), api('/inventory/warehouses'),
     ])
     users.value = u; roles.value = r; rules.value = c; account.value = a; templates.value = t; vendorsList.value = v
     warehouses.value = w
@@ -294,11 +301,16 @@ function copyWebhook() {
 
 <template>
   <div>
-    <PageHeader title="Settings" subtitle="Staff access, role permissions, pricing rules and the WhatsApp channel." />
-    <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
+    <PageHeader title="Settings" subtitle="Staff and roles, features, appearance, printed documents, pricing and messaging." />
+    <div class="overflow-x-auto thin-scroll mb-4 pb-1">
+      <UTabs :items="tabs" v-model:model-value="tab" :content="false" class="min-w-max"
+             :ui="{ list: 'w-max', trigger: 'shrink-0 whitespace-nowrap' }" />
+    </div>
 
     <SettingsAppearance v-if="tab === 'appearance'" />
     <SettingsDocuments v-else-if="tab === 'documents'" />
+    <SettingsModules v-else-if="tab === 'modules'" />
+    <SettingsRoles v-else-if="tab === 'roles'" @changed="load" />
 
     <!-- USERS -->
     <template v-else-if="tab === 'users'">
@@ -376,23 +388,6 @@ function copyWebhook() {
       </DataTable>
     </template>
 
-    <!-- ROLES -->
-    <template v-else-if="tab === 'roles' && roles">
-      <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        <div v-for="r in roles.roles" :key="r.id" class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4">
-          <div class="flex items-center gap-2 mb-2">
-            <p class="font-semibold text-zinc-800 dark:text-zinc-200">{{ r.name }}</p>
-            <UBadge v-if="r.is_system" color="neutral" variant="subtle" size="xs">system</UBadge>
-          </div>
-          <p class="text-xs text-zinc-400 mb-2">{{ roles.role_permissions[String(r.id)]?.length || 0 }} permissions</p>
-          <div class="flex flex-wrap gap-1">
-            <UBadge v-for="p in (roles.role_permissions[String(r.id)] || []).slice(0, 8)" :key="p" color="primary" variant="soft" size="xs">{{ p }}</UBadge>
-            <UBadge v-if="(roles.role_permissions[String(r.id)] || []).length > 8" color="neutral" variant="subtle" size="xs">+{{ roles.role_permissions[String(r.id)].length - 8 }} more</UBadge>
-          </div>
-        </div>
-      </div>
-    </template>
-
     <!-- CHARGES -->
     <template v-else-if="tab === 'charges'">
       <div class="mb-3">
@@ -462,7 +457,7 @@ function copyWebhook() {
     </template>
 
     <!-- WHATSAPP -->
-    <template v-else-if="tab === 'whatsapp'">
+    <template v-else-if="tab === 'whatsapp' && on('whatsapp')">
       <div class="grid lg:grid-cols-2 gap-5">
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5" v-if="account">
           <div class="flex items-center justify-between mb-3">

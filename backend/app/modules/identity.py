@@ -2,6 +2,7 @@ from collections import defaultdict, deque
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db, utcnow
@@ -236,3 +237,84 @@ def list_roles(user: User = Depends(require_staff), db: Session = Depends(get_db
         "permission_catalog": serialize_list(perms),
         "role_permissions": {str(r.id): sorted([c for c in role_perms.get(r.id, []) if c]) for r in roles},
     }
+
+
+# ---------------------------------------------------------------- roles you can create and change
+
+PROTECTED_ROLES = ("Business Owner", "Administrator", "Vendor")
+
+
+class RoleIn(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    permissions: list[str] | None = None
+
+
+def _set_role_permissions(db: Session, role: Role, codes: list[str]):
+    known = {p.codename: p.id for p in db.query(Permission).all()}
+    bad = [c for c in codes if c not in known]
+    if bad:
+        raise HTTPException(400, f"Unknown permission: {bad[0]}")
+    db.query(RolePermission).filter(RolePermission.role_id == role.id).delete()
+    for c in sorted(set(codes)):
+        db.add(RolePermission(role_id=role.id, permission_id=known[c]))
+
+
+@router.post("/roles", status_code=201)
+def create_role(body: RoleIn, user: User = Depends(require_perm("settings.manage")), db: Session = Depends(get_db)):
+    name = (body.name or "").strip()
+    if not name or len(name) > 80:
+        raise HTTPException(400, "Give the role a name (up to 80 characters)")
+    if db.query(Role).filter(func.lower(Role.name) == name.lower()).first():
+        raise HTTPException(400, "A role with this name already exists")
+    r = Role(name=name, description=(body.description or "").strip()[:255], is_system=False)
+    db.add(r)
+    db.flush()
+    _set_role_permissions(db, r, body.permissions or [])
+    audit(db, user, "create", "role", r.id, f"Created role {r.name}")
+    db.commit()
+    return {"id": r.id}
+
+
+@router.patch("/roles/{role_id}")
+def update_role(role_id: int, body: RoleIn, user: User = Depends(require_perm("settings.manage")),
+                db: Session = Depends(get_db)):
+    r = db.get(Role, role_id)
+    if not r:
+        raise HTTPException(404, "Role not found")
+    if r.name in PROTECTED_ROLES:
+        raise HTTPException(400, f"The {r.name} role is fixed and cannot be changed")
+    if body.name is not None:
+        name = body.name.strip()
+        if not name or len(name) > 80:
+            raise HTTPException(400, "Give the role a name (up to 80 characters)")
+        clash = db.query(Role).filter(func.lower(Role.name) == name.lower(), Role.id != r.id).first()
+        if clash:
+            raise HTTPException(400, "A role with this name already exists")
+        r.name = name
+    if body.description is not None:
+        r.description = body.description.strip()[:255]
+    if body.permissions is not None:
+        if user.role_id == r.id and not user.is_superuser and "settings.manage" not in body.permissions:
+            raise HTTPException(400, "You cannot remove settings access from your own role")
+        _set_role_permissions(db, r, body.permissions)
+    audit(db, user, "update", "role", r.id, f"Updated role {r.name}")
+    db.commit()
+    return {"id": r.id}
+
+
+@router.delete("/roles/{role_id}")
+def delete_role(role_id: int, user: User = Depends(require_perm("settings.manage")), db: Session = Depends(get_db)):
+    r = db.get(Role, role_id)
+    if not r:
+        raise HTTPException(404, "Role not found")
+    if r.name in PROTECTED_ROLES:
+        raise HTTPException(400, f"The {r.name} role is fixed and cannot be deleted")
+    n = db.query(User).filter(User.role_id == r.id).count()
+    if n:
+        raise HTTPException(400, f"{n} staff member(s) still have this role. Move them to another role first.")
+    db.query(RolePermission).filter(RolePermission.role_id == r.id).delete()
+    db.delete(r)
+    audit(db, user, "delete", "role", role_id, f"Deleted role {r.name}")
+    db.commit()
+    return {"ok": True}
