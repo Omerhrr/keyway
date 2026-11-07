@@ -29,7 +29,7 @@ async function open(o: any) {
     <div class="flex items-center gap-2 mb-4">
       <UInput v-model="q" icon="i-lucide-search" placeholder="Reference or customer…" class="flex-1" @keydown.enter="load" />
     </div>
-    <DataTable :columns="[
+    <DataTable export-title="My orders" :columns="[
       { key: 'reference', label: 'Order' },
       { key: 'customer_name', label: 'Customer' },
       { key: 'destination', label: 'Destination' },
@@ -37,7 +37,7 @@ async function open(o: any) {
       { key: 'status', label: 'Status' },
     ]" :rows="orders.map(o => ({
       ...o,
-      destination: [o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '—',
+      destination: [o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '-',
       cod: fmtNaira(o.cod_amount_kobo),
     }))" :loading="loading" clickable empty-title="No orders yet"
       empty-hint="Send us an order on WhatsApp and it will appear here." @row-click="open">

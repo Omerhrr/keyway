@@ -82,7 +82,7 @@ async function createOrder() {
       <USelect v-model="vendorId" :items="[{ label: 'All vendors', value: 0 }, ...vendorsOptions]" class="w-52" @change="load" />
     </div>
 
-    <DataTable :columns="[
+    <DataTable export-title="Orders" :columns="[
       { key: 'reference', label: 'Order' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'customer_name', label: 'Customer' },
@@ -91,7 +91,7 @@ async function createOrder() {
       { key: 'cod', label: 'COD', align: 'right' },
       { key: 'source', label: 'Source' },
       { key: 'status', label: 'Status' },
-    ]" :rows="orders.map(o => ({ ...o, destination: [o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '—', cod: fmtNaira(o.cod_amount_kobo), warehouse_name: o.warehouse_name || '—' }))"
+    ]" :rows="orders.map(o => ({ ...o, destination: [o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '-', cod: fmtNaira(o.cod_amount_kobo), warehouse_name: o.warehouse_name || '-' }))"
       :loading="loading" clickable empty-title="No orders" empty-hint="Create one manually or simulate a WhatsApp order." @row-click="r => navigateTo(`/orders/${r.id}`)">
       <template #reference="{ row }">
         <span class="font-mono font-semibold text-primary-600">{{ row.reference }}</span>
@@ -107,7 +107,7 @@ async function createOrder() {
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Vendor"><USelect v-model="form.vendor_id" class="w-full" :items="vendorsOptions" @update:model-value="onVendorChange" /></UFormField>
           <UFormField label="Product"><USelect v-model="form.product_id" class="w-full" :items="products.map(p => ({ label: `${p.name} · avail ${p.qty_available}`, value: p.id }))" /></UFormField>
-          <UFormField label="Fulfilment warehouse" hint="Pick a branch or leave on Auto - Keyway uses the warehouse holding the stock">
+          <UFormField label="Fulfilment warehouse" hint="Pick a branch or leave on Auto and the warehouse holding the stock is used">
             <USelect v-model="form.warehouse_id" class="w-full" :items="[{ label: `Auto (best stock)`, value: 0 }, ...warehouses.map(w => ({ label: w.name, value: w.id }))]" />
           </UFormField>
           <UFormField label="Customer name"><UInput v-model="form.customer_name" class="w-full" /></UFormField>

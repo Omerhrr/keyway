@@ -69,7 +69,7 @@ async function toggleStatus(v: any) {
       <UInput v-model="q" icon="i-lucide-search" placeholder="Search vendors…" @keydown.enter="load" />
     </div>
 
-    <DataTable :columns="[
+    <DataTable export-title="Vendors" :columns="[
       { key: 'name', label: 'Vendor' },
       { key: 'contact', label: 'Primary WhatsApp' },
       { key: 'product_count', label: 'Products', align: 'right' },

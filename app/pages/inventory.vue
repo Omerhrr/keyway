@@ -181,7 +181,7 @@ async function cancelTransfer(t: any) {
         <USelect v-model="warehouseId" :items="[{ label: 'All warehouses', value: 0 }, ...warehouses.map(w => ({ label: w.name, value: w.id }))]" class="w-56" @update:model-value="load" />
         <UCheckbox v-model="lowOnly" label="Low stock only" @update:model-value="load" />
       </div>
-      <DataTable :columns="[
+      <DataTable export-title="Stock levels" :columns="[
         { key: 'product_name', label: 'Product' },
         { key: 'vendor_name', label: 'Vendor' },
         { key: 'warehouse_name', label: 'Warehouse' },
@@ -212,7 +212,7 @@ async function cancelTransfer(t: any) {
     </template>
 
     <template v-else-if="tab === 'receipts'">
-      <DataTable :columns="[
+      <DataTable export-title="Stock received" :columns="[
         { key: 'reference', label: 'Reference' },
         { key: 'vendor_name', label: 'Vendor' },
         { key: 'warehouse_name', label: 'Warehouse' },
@@ -226,7 +226,7 @@ async function cancelTransfer(t: any) {
     </template>
 
     <template v-else-if="tab === 'transfers'">
-      <DataTable :columns="[
+      <DataTable export-title="Stock transfers" :columns="[
         { key: 'reference', label: 'Reference' },
         { key: 'product_name', label: 'Product' },
         { key: 'route', label: 'Route' },
@@ -255,7 +255,7 @@ async function cancelTransfer(t: any) {
     </template>
 
     <template v-else-if="tab === 'movements'">
-      <DataTable :columns="[
+      <DataTable export-title="Stock movements" :columns="[
         { key: 'created_at', label: 'When' },
         { key: 'product_name', label: 'Product' },
         { key: 'movement_type', label: 'Type' },

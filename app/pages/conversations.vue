@@ -73,7 +73,7 @@ async function simulateInbound() {
     })
     simText.value = ''; simFile.value = null; simFileB64.value = ''
     const engine = res?.media_engine && res.media_engine !== 'none' ? ` · ${res.media_engine.toUpperCase()}` : ''
-    useToast().add({ title: `Message ingested${engine}`, description: 'Vendor recognition, intent and extraction ran on the pipeline.', icon: 'i-lucide-bot' })
+    useToast().add({ title: `Message received${engine}`, description: 'The vendor, what they want and the order details were read automatically.', icon: 'i-lucide-bot' })
     await load()
     await open(selected.value)
   } catch (e) {
@@ -240,11 +240,11 @@ onMounted(load)
         <!-- reply -->
         <div class="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-2">
           <div class="flex gap-2">
-            <UInput v-model="replyText" placeholder="Reply as Keyway (simulated outbound)…" class="flex-1" size="sm"
+            <UInput v-model="replyText" placeholder="Type a reply (test mode)..." class="flex-1" size="sm"
                     @keydown.enter="sendReply" />
             <UButton icon="i-lucide-send" :loading="replySending" @click="sendReply" aria-label="Send reply" />
           </div>
-          <USeparator label="Vendor simulator" :ui="{ border: 'border-dashed' }" />
+          <USeparator label="Practice as a vendor" :ui="{ border: 'border-dashed' }" />
           <div class="flex gap-2">
             <USelect v-model="simType" :items="[
               { label: 'Text', value: 'text' },
@@ -254,7 +254,7 @@ onMounted(load)
             <input v-if="simType !== 'text'" type="file" :accept="simType === 'voice' ? 'audio/*' : 'image/*'"
                    class="text-xs text-zinc-500 file:mr-2 file:rounded-md file:border-0 file:bg-zinc-100 dark:file:bg-zinc-800 file:px-2 file:py-1 file:text-xs"
                    @change="onSimFile" aria-label="Attach simulated media" />
-            <UInput v-model="simText" :placeholder="simType === 'text' ? 'Type as the vendor to test the intake pipeline…' : simType === 'voice' ? 'Caption (optional) — audio is transcribed' : 'Caption (optional) — photo is vision-read'" class="flex-1" size="sm"
+            <UInput v-model="simText" :placeholder="simType === 'text' ? 'Type as the vendor to test how orders are picked up...' : simType === 'voice' ? 'Caption (optional) - voice note is turned into text' : 'Caption (optional) - photo is read automatically'" class="flex-1" size="sm"
                     @keydown.enter="simulateInbound" />
             <UButton icon="i-lucide-bot" color="warning" variant="soft" :loading="simSending"
                      :disabled="simType !== 'text' && !simFileB64" @click="simulateInbound" aria-label="Simulate vendor message" />
@@ -265,7 +265,7 @@ onMounted(load)
       <div v-else class="hidden lg:flex items-center justify-center bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 h-[76vh] text-zinc-400 flex-col gap-2">
         <UIcon name="i-lucide-message-circle" class="w-10 h-10 opacity-30" />
         <p>Select a conversation</p>
-        <p class="text-xs">Use the simulator below any thread to send vendor messages through the real pipeline.</p>
+        <p class="text-xs">Use the practice box below any chat to send test vendor messages.</p>
       </div>
     </div>
 

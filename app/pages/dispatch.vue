@@ -117,7 +117,7 @@ async function createZone() {
 
     <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
 
-    <DataTable v-if="tab === 'deliveries'" :columns="[
+    <DataTable export-title="Deliveries" v-if="tab === 'deliveries'" :columns="[
       { key: 'order_reference', label: 'Order' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'destination', label: 'Destination' },
@@ -140,7 +140,7 @@ async function createZone() {
       </template>
     </DataTable>
 
-    <DataTable v-else-if="tab === 'riders'" :columns="[
+    <DataTable export-title="Riders" v-else-if="tab === 'riders'" :columns="[
       { key: 'full_name', label: 'Rider' },
       { key: 'phone', label: 'Phone' },
       { key: 'vehicle', label: 'Vehicle' },
@@ -157,14 +157,14 @@ async function createZone() {
           <h3 class="font-semibold text-zinc-700 dark:text-zinc-200">Carriers</h3>
           <UButton size="xs" icon="i-lucide-plus" variant="soft" @click="showCarrier = true">Add</UButton>
         </div>
-        <DataTable :columns="[{ key: 'name', label: 'Name' }, { key: 'kind', label: 'Kind' }, { key: 'contact_phone', label: 'Contact' }]" :rows="carriers" :loading="loading" />
+        <DataTable export-title="Carriers" :columns="[{ key: 'name', label: 'Name' }, { key: 'kind', label: 'Kind' }, { key: 'contact_phone', label: 'Contact' }]" :rows="carriers" :loading="loading" />
       </div>
       <div>
         <div class="flex items-center justify-between mb-3">
           <h3 class="font-semibold text-zinc-700 dark:text-zinc-200">Delivery zones</h3>
           <UButton size="xs" icon="i-lucide-plus" variant="soft" @click="showZone = true">Add</UButton>
         </div>
-        <DataTable :columns="[{ key: 'name', label: 'Zone' }, { key: 'state', label: 'State' }, { key: 'fee', label: 'Base fee', align: 'right' }]"
+        <DataTable export-title="Delivery zones" :columns="[{ key: 'name', label: 'Zone' }, { key: 'state', label: 'State' }, { key: 'fee', label: 'Base fee', align: 'right' }]"
                    :rows="zones.map(z => ({ ...z, fee: fmtNaira(z.base_fee_kobo) }))" :loading="loading" />
       </div>
     </div>

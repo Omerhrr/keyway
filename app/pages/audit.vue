@@ -18,7 +18,7 @@ const types = computed(() => ['', 'order', 'vendor', 'order_draft', 'cod_collect
     <div class="mb-3">
       <USelect v-model="entityType" :items="types.map(t => ({ label: t ? titleize(t) : 'All entities', value: t || 'ALL' }))" class="w-56" @change="load" />
     </div>
-    <DataTable :columns="[
+    <DataTable export-title="Activity log" :columns="[
       { key: 'created_at', label: 'When' },
       { key: 'actor_label', label: 'Actor' },
       { key: 'action', label: 'Action' },

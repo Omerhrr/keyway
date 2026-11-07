@@ -10,6 +10,29 @@ async function load() {
 }
 onMounted(load)
 
+const { printRecord } = useDocs()
+function printOrder() {
+  const o = order.value
+  if (!o) return
+  printRecord({
+    title: `Order ${o.reference}`,
+    subtitle: `${o.vendor_name} · ${fmtDateTime(o.created_at)}`,
+    fields: [
+      ['Status', titleize(o.status)],
+      ['Customer', o.customer?.name || '-'],
+      ['Phone', o.customer?.phone || '-'],
+      ['Delivery address', [o.delivery_street, o.delivery_area, o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '-'],
+      ['Payment', titleize(o.payment_method)],
+      ['Cash to collect', fmtNaira(o.cod_amount_kobo)],
+    ],
+    tables: [{
+      heading: 'Items',
+      columns: ['Item', 'Qty', 'Unit price', 'Total'],
+      rows: (o.items || []).map((it: any) => [it.name_snapshot, it.qty, fmtNaira(it.unit_price_kobo), fmtNaira(it.line_total_kobo)]),
+    }],
+  })
+}
+
 const nexts = computed(() => order.value ? (ORDER_TRANSITIONS[order.value.status] || []) : [])
 const showStatus = ref(false)
 const toStatus = ref('')
@@ -120,6 +143,7 @@ async function recordAttempt() {
       <div class="flex flex-wrap gap-2 mb-6">
         <UButton v-if="nexts.length" icon="i-lucide-git-branch" variant="outline" @click="showStatus = true">Change status</UButton>
         <UButton v-if="['CONFIRMED', 'PENDING_CUSTOMER_CONFIRMATION', 'CUSTOMER_CONFIRMED'].includes(order.status)" icon="i-lucide-phone-call" color="info" variant="soft" @click="showConfirm = true">Record confirmation</UButton>
+        <UButton icon="i-lucide-printer" color="neutral" variant="outline" @click="printOrder">Print PDF</UButton>
         <UButton v-if="order.status === 'READY_FOR_DISPATCH'" icon="i-lucide-truck" @click="openDispatch">Dispatch</UButton>
         <UButton v-if="order.status === 'DELIVERED' && order.payment_method === 'COD'" icon="i-lucide-banknote" color="warning" variant="soft" @click="showCod = true">Record COD</UButton>
         <UButton v-for="n in nexts.filter(s => s === 'CANCELLED')" :key="n" icon="i-lucide-ban" color="error" variant="soft" @click="askStatus(n)">Cancel order</UButton>

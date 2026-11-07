@@ -120,7 +120,7 @@ const missingList = computed(() => selected.value?.missing_fields || [])
       </template>
     </PageHeader>
 
-    <DataTable :columns="[
+    <DataTable export-title="Draft orders" :columns="[
       { key: 'draft_ref', label: 'Draft' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'message', label: 'Message' },
@@ -130,10 +130,10 @@ const missingList = computed(() => selected.value?.missing_fields || [])
       { key: 'status', label: 'Status' },
     ]" :rows="drafts.map(d => ({
       ...d,
-      message: (d.extracted?.original_text || '').slice(0, 60) || '—',
+      message: (d.extracted?.original_text || '').slice(0, 60) || '-',
       product_label: d.product_label || 'Unresolved',
-      customer: d.customer_name ? `${d.customer_name}` : '—',
-    }))" :loading="loading" clickable empty-title="No drafts in this view" empty-hint="Send a vendor message from the inbox simulator." @row-click="review">
+      customer: d.customer_name ? `${d.customer_name}` : '-',
+    }))" :loading="loading" clickable empty-title="No drafts in this view" empty-hint="Send a vendor message from the inbox practice box." @row-click="review">
       <template #confidence="{ row }">
         <div class="flex items-center gap-1.5 justify-end">
           <div class="w-14 h-1.5 rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
@@ -177,7 +177,7 @@ const missingList = computed(() => selected.value?.missing_fields || [])
             <UFormField label="Customer name"><UInput v-model="form.customer_name" class="w-full" /></UFormField>
             <UFormField label="Customer phone"><UInput v-model="form.customer_phone" class="w-full" /></UFormField>
             <UFormField label="Product">
-              <USelect v-model="form.product_id" class="w-full" :items="[...(candidateOptions.length ? [{ label: '— From message —', value: 0 }] : []), ...candidateOptions, ...productOptions]" />
+              <USelect v-model="form.product_id" class="w-full" :items="[...(candidateOptions.length ? [{ label: 'From the message', value: 0 }] : []), ...candidateOptions, ...productOptions]" />
             </UFormField>
             <div class="grid grid-cols-2 gap-3">
               <UFormField label="Quantity"><UInput v-model="form.quantity" type="number" min="1" class="w-full" /></UFormField>

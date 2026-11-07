@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const brand = useBranding()
 const { user, logout } = useAuth()
 const route = useRoute()
 const { unread, items: notifItems, markAllRead, markRead, startPolling, targetFor } = useNotifications()
@@ -35,7 +36,7 @@ async function doLogout() {
 async function installApp() {
   if (!canInstall && isIOS) { showInstallHelp.value = true; return }
   const ok = await install()
-  if (ok) useToast().add({ title: 'Keyway installed', description: 'Launch it from your home screen.', color: 'success' })
+  if (ok) useToast().add({ title: 'App installed', description: 'Launch it from your home screen.', color: 'success' })
 }
 </script>
 
@@ -43,8 +44,8 @@ async function installApp() {
   <div class="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950">
     <header class="sticky top-0 z-30 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
       <div class="max-w-3xl mx-auto flex items-center gap-2.5 px-4 h-14">
-        <img src="/logo.svg" alt="Keyway" class="w-7 h-7">
-        <p class="font-bold text-zinc-900 dark:text-white">Keyway <span class="text-zinc-400 font-normal text-sm">Vendor Portal</span></p>
+        <BrandLogo :size="28" />
+        <p class="font-bold text-zinc-900 dark:text-white">{{ brand.brand_name }} <span class="text-zinc-400 font-normal text-sm">Vendor Portal</span></p>
         <div class="ml-auto flex items-center gap-1.5">
           <UButton v-if="installable" icon="i-lucide-download" size="xs" variant="soft" color="primary" @click="installApp">
             {{ canInstall ? 'Install' : 'Add to Home Screen' }}
@@ -98,17 +99,17 @@ async function installApp() {
       <slot />
     </main>
     <footer class="mt-auto py-3 text-center text-[11px] text-zinc-400">
-      Keyway Vendor Portal · installable as an app (PWA)
+      {{ brand.brand_name }} Vendor Portal · you can add this to your phone's home screen
     </footer>
 
     <!-- iOS install help (Safari has no programmatic install prompt) -->
-    <UModal v-model:open="showInstallHelp" title="Install Keyway on your iPhone / iPad">
+    <UModal v-model:open="showInstallHelp" :title="`Add ${brand.brand_name} to your iPhone or iPad`">
       <template #body>
         <ol class="list-decimal list-inside space-y-2.5 text-sm text-zinc-700 dark:text-zinc-300">
-          <li>Open <strong>keyway</strong> in <strong>Safari</strong> (installing requires Safari).</li>
+          <li>Open this website in <strong>Safari</strong> (this only works in Safari).</li>
           <li>Tap the <strong>Share</strong> button <UIcon name="i-lucide-share" class="w-4 h-4 inline-block align-[-3px]" /> in the toolbar.</li>
           <li>Scroll and tap <strong>Add to Home Screen</strong>.</li>
-          <li>Tap <strong>Add</strong> - Keyway launches full-screen like a native app.</li>
+          <li>Tap <strong>Add</strong> - it opens full-screen like any other app.</li>
         </ol>
       </template>
       <template #footer>

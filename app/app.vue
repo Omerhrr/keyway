@@ -11,6 +11,7 @@ const { bind, updateReady, applyUpdate } = usePwa()
 
 // Per-page document titles: "Orders · Keyway" instead of one static title.
 const route = useRoute()
+const brand = useBranding()
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/conversations': 'WhatsApp Inbox',
@@ -24,7 +25,7 @@ const pageTitles: Record<string, string> = {
   '/customers': 'Customers',
   '/cod': 'COD Collections',
   '/settlements': 'Settlements',
-  '/finance': 'Finance & Ledger',
+  '/finance': 'Finance',
   '/reports': 'Reports',
   '/settings': 'Settings',
   '/audit': 'Audit Trail',
@@ -35,11 +36,11 @@ const pageTitles: Record<string, string> = {
 }
 useHead({
   title: () => {
-    if (route.path === '/login') return 'Sign in · Keyway'
+    if (route.path === '/login') return `Sign in · ${brand.value.brand_name}`
     const base = pageTitles[route.path]
       || (route.path.startsWith('/portal') ? 'Vendor Portal' : undefined)
       || (route.path.startsWith('/orders/') ? 'Order' : undefined)
-    return base ? `${base} · Keyway` : 'Keyway - Logistics Operations'
+    return base ? `${base} · ${brand.value.brand_name}` : brand.value.brand_name
   },
 })
 

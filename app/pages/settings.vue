@@ -8,6 +8,8 @@ const tabs = [
   { label: 'Pricing rules', value: 'charges', icon: 'i-lucide-tags' },
   { label: 'Notifications', value: 'notify', icon: 'i-lucide-bell-ring' },
   { label: 'WhatsApp', value: 'whatsapp', icon: 'i-lucide-message-circle' },
+  { label: 'Appearance', value: 'appearance', icon: 'i-lucide-palette' },
+  { label: 'Printed documents', value: 'documents', icon: 'i-lucide-file-text' },
 ]
 
 const users = ref<any[]>([])
@@ -285,7 +287,7 @@ const webhookUrl = computed(() => {
 function copyWebhook() {
   if (import.meta.client) {
     navigator.clipboard?.writeText(webhookUrl.value)
-    useToast().add({ title: 'Webhook URL copied', color: 'success' })
+    useToast().add({ title: 'Link copied', color: 'success' })
   }
 }
 </script>
@@ -295,8 +297,11 @@ function copyWebhook() {
     <PageHeader title="Settings" subtitle="Staff access, role permissions, pricing rules and the WhatsApp channel." />
     <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
 
+    <SettingsAppearance v-if="tab === 'appearance'" />
+    <SettingsDocuments v-else-if="tab === 'documents'" />
+
     <!-- USERS -->
-    <template v-if="tab === 'users'">
+    <template v-else-if="tab === 'users'">
       <div class="mb-3">
         <UButton icon="i-lucide-user-plus" @click="showUser = true">Add staff</UButton>
       </div>
@@ -319,7 +324,7 @@ function copyWebhook() {
           <USelect v-if="!row.is_vendor && canManageInventory" :model-value="row.warehouse_id || 0" size="xs" class="w-44"
                    :items="[{ label: 'No home warehouse', value: 0 }, ...warehouses.filter(w => w.is_active).map(w => ({ label: w.name, value: w.id }))]"
                    @update:model-value="v => setUserWarehouse(row, v)" />
-          <span v-else class="text-xs text-zinc-400">{{ warehouses.find(w => w.id === row.warehouse_id)?.name || '—' }}</span>
+          <span v-else class="text-xs text-zinc-400">{{ warehouses.find(w => w.id === row.warehouse_id)?.name || '-' }}</span>
         </template>
         <template #actions="{ row }">
           <UButton size="xs" variant="soft" :color="row.is_active ? 'error' : 'success'" @click.stop="toggleUser(row)">
@@ -344,13 +349,13 @@ function copyWebhook() {
         { key: 'actions', label: '' },
       ]" :rows="warehouses.map(w => ({
         ...w,
-        location: [w.city, w.state].filter(Boolean).join(', ') || '—',
+        location: [w.city, w.state].filter(Boolean).join(', ') || '-',
       }))" :loading="loading" empty-title="No warehouses">
         <template #code="{ row }"><span class="font-mono font-semibold text-primary-600">{{ row.code }}</span></template>
         <template #locations="{ row }">
           <div class="flex flex-wrap gap-1">
             <UBadge v-for="l in (row.locations || [])" :key="l.id" color="neutral" variant="subtle" size="xs">{{ l.code }}</UBadge>
-            <span v-if="!(row.locations || []).length" class="text-xs text-zinc-400">—</span>
+            <span v-if="!(row.locations || []).length" class="text-xs text-zinc-400">-</span>
           </div>
         </template>
         <template #default="{ row }">
@@ -417,7 +422,7 @@ function copyWebhook() {
             <UButton v-if="canManageNotify" :loading="checking" variant="soft" color="neutral" icon="i-lucide-refresh-ccw" @click="runChecks">
               Run checks now
             </UButton>
-            <p class="text-xs text-zinc-400 ml-auto">Checks: low stock vs reorder level + orders awaiting confirmation. Idempotent - no duplicate alerts while one is unread.</p>
+            <p class="text-xs text-zinc-400 ml-auto">Checks for low stock and orders waiting for confirmation. You will not get the same alert twice while the first is unread.</p>
           </div>
           <DataTable :columns="[
             { key: 'name', label: 'Rule' },
@@ -461,24 +466,24 @@ function copyWebhook() {
       <div class="grid lg:grid-cols-2 gap-5">
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5" v-if="account">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="font-semibold text-zinc-700 dark:text-zinc-200">Cloud API connection</h3>
+            <h3 class="font-semibold text-zinc-700 dark:text-zinc-200">WhatsApp connection</h3>
             <UBadge :color="waForm.mode === 'SIMULATOR' ? 'warning' : (account.status === 'CONNECTED' ? 'success' : 'error')" variant="subtle" size="xs">
-              {{ waForm.mode === 'SIMULATOR' ? 'Simulator mode' : account.status }}
+              {{ waForm.mode === 'SIMULATOR' ? 'Practice mode' : account.status }}
             </UBadge>
           </div>
           <div class="space-y-3 text-sm">
-            <UFormField label="Mode" description="Simulator keeps the demo inbox flow; Cloud API serves real WhatsApp traffic.">
+            <UFormField label="Mode" description="Practice mode lets you try the inbox with test messages. Live mode uses your real WhatsApp number.">
               <USelect v-model="waForm.mode" class="w-full"
-                       :items="[{ label: 'Simulator (no Meta credentials needed)', value: 'SIMULATOR' }, { label: 'WhatsApp Cloud API (production)', value: 'CLOUD_API' }]" />
+                       :items="[{ label: 'Practice (no WhatsApp account needed)', value: 'SIMULATOR' }, { label: 'Live (real WhatsApp messages)', value: 'CLOUD_API' }]" />
             </UFormField>
-            <UFormField label="Phone number ID" hint="Meta → WhatsApp → API Setup">
+            <UFormField label="Phone number ID" hint="Found in your Meta WhatsApp setup page">
               <UInput v-model="waForm.phone_number_id" class="w-full" placeholder="e.g. 123456789012345" />
             </UFormField>
             <UFormField label="WhatsApp Business Account ID">
               <UInput v-model="waForm.waba_id" class="w-full" placeholder="e.g. 987654321098765" />
             </UFormField>
-            <UFormField :label="tokenSet ? 'Access token (replace)' : 'Access token'"
-                        :hint="tokenSet ? 'A token is stored. Leave blank to keep it.' : 'Permanent system-user token with whatsapp_business_messaging'">
+            <UFormField :label="tokenSet ? 'Access key (replace)' : 'Access key'"
+                        :hint="tokenSet ? 'An access key is saved. Leave blank to keep it.' : 'The permanent access key from your Meta account'">
               <UInput v-model="waForm.access_token" type="password" class="w-full" :placeholder="tokenSet ? '•••••••• (stored)' : 'EAAG...'" />
             </UFormField>
             <div class="flex gap-2 pt-1">
@@ -488,12 +493,12 @@ function copyWebhook() {
           </div>
           <USeparator class="my-4" />
           <div>
-            <p class="text-xs font-medium text-zinc-500 mb-1">Webhook callback URL (paste into Meta App dashboard)</p>
+            <p class="text-xs font-medium text-zinc-500 mb-1">Message link (paste this into your Meta app settings)</p>
             <div class="flex items-center gap-2">
               <code class="text-xs bg-zinc-100 dark:bg-zinc-800 rounded px-2 py-1.5 flex-1 truncate">{{ webhookUrl }}</code>
               <UButton size="xs" variant="ghost" icon="i-lucide-copy" @click="copyWebhook" />
             </div>
-            <p class="text-xs text-zinc-400 mt-1.5">Verify token is set server-side via <code>KEYWAY_WHATSAPP_VERIFY_TOKEN</code>. Message signing is enforced with <code>KEYWAY_WHATSAPP_APP_SECRET</code> when configured.</p>
+            <p class="text-xs text-zinc-400 mt-1.5">Your developer sets the matching verification codes on the server.</p>
           </div>
         </div>
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">

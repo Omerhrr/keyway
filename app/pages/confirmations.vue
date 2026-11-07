@@ -31,7 +31,7 @@ async function submit() {
   <div>
     <PageHeader title="Customer Confirmations" subtitle="Confirm product, amount, address and availability before dispatch. Every attempt is recorded." />
 
-    <DataTable :columns="[
+    <DataTable export-title="Order confirmations" :columns="[
       { key: 'reference', label: 'Order' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'customer_name', label: 'Customer' },

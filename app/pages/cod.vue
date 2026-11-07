@@ -64,7 +64,7 @@ async function verify() {
       body: { collected_kobo: toKobo(verifyForm.collected_naira), method: verifyForm.method },
     })
     await api(`/cod/collections/${selected.value.id}/verify`, { method: 'POST', body: { note: verifyForm.note } })
-    useToast().add({ title: 'Collection verified', description: 'Ledger updated: COD clearing debited, vendor payable credited.', color: 'success', icon: 'i-lucide-book-check' })
+    useToast().add({ title: 'Collection verified', description: 'Books updated: the cash is recorded and the vendor is credited.', color: 'success', icon: 'i-lucide-book-check' })
     showVerify.value = false
     await load()
   } catch (e) {
@@ -118,7 +118,7 @@ async function confirmHandover(h: any) {
                  :variant="statusFilter === s ? 'solid' : 'soft'" color="neutral"
                  :label="s ? titleize(s) : 'All'" @click="statusFilter = s; load()" />
       </div>
-      <DataTable :columns="[
+      <DataTable export-title="Cash collections" :columns="[
         { key: 'order_reference', label: 'Order' },
         { key: 'customer_name', label: 'Customer' },
         { key: 'expected', label: 'Expected', align: 'right' },
@@ -147,14 +147,14 @@ async function confirmHandover(h: any) {
       <div class="mb-3">
         <UButton size="xs" icon="i-lucide-plus" variant="soft" @click="openHandover">Open handover</UButton>
       </div>
-      <DataTable :columns="[
+      <DataTable export-title="Cash handovers" :columns="[
         { key: 'reference', label: 'Reference' },
         { key: 'rider_name', label: 'Rider' },
         { key: 'expected', label: 'Expected', align: 'right' },
         { key: 'counted', label: 'Counted', align: 'right' },
         { key: 'status', label: 'Status' },
         { key: 'actions', label: '' },
-      ]" :rows="handovers.map(h => ({ ...h, expected: fmtNaira(h.amount_expected_kobo), counted: h.amount_counted_kobo ? fmtNaira(h.amount_counted_kobo) : '—' }))"
+      ]" :rows="handovers.map(h => ({ ...h, expected: fmtNaira(h.amount_expected_kobo), counted: h.amount_counted_kobo ? fmtNaira(h.amount_counted_kobo) : '-' }))"
         :loading="loading" empty-title="No handovers">
         <template #status="{ row }"><StatusBadge :status="row.status" /></template>
         <template #actions="{ row }">
@@ -214,7 +214,7 @@ async function confirmHandover(h: any) {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showVerify = false">Cancel</UButton>
-          <UButton :loading="saving" color="success" @click="verify">Verify & post to ledger</UButton>
+          <UButton :loading="saving" color="success" @click="verify">Verify and record</UButton>
         </div>
       </template>
     </UModal>

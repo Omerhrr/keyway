@@ -42,7 +42,7 @@ const groups = computed<NavGroup[]>(() => [
     items: [
       { label: 'COD', to: '/cod', icon: 'i-lucide-banknote', perm: 'cod.manage' },
       { label: 'Settlements', to: '/settlements', icon: 'i-lucide-receipt-text', perm: 'settlements.manage' },
-      { label: 'Finance & Ledger', to: '/finance', icon: 'i-lucide-landmark', perm: 'finance.manage' },
+      { label: 'Finance', to: '/finance', icon: 'i-lucide-landmark', perm: 'finance.manage' },
     ],
   },
   {
@@ -64,6 +64,7 @@ const visibleGroups = computed(() =>
 const mobileOpen = ref(false)
 const mobileNav = computed(() => visibleGroups.value.flatMap((g) => g.items))
 const primaryMobile = computed(() => mobileNav.value.slice(0, 4))
+const brand = useBranding()
 const colorMode = useColorMode()
 const isDark = computed(() => colorMode.value === 'dark')
 function toggleTheme() {
@@ -79,7 +80,7 @@ async function installApp() {
   // Chrome/Edge/Android fire beforeinstallprompt; iOS Safari needs manual steps
   if (!canInstall && isIOS) { showInstallHelp.value = true; return }
   const ok = await install()
-  if (ok) useToast().add({ title: 'Keyway installed', description: 'Launch it from your home screen.', color: 'success' })
+  if (ok) useToast().add({ title: 'App installed', description: 'Launch it from your home screen.', color: 'success' })
 }
 </script>
 
@@ -88,9 +89,9 @@ async function installApp() {
     <!-- Desktop sidebar -->
     <aside class="hidden lg:flex flex-col fixed inset-y-0 left-0 w-60 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 z-30">
       <div class="flex items-center gap-2.5 px-5 h-16 border-b border-zinc-200 dark:border-zinc-800">
-        <img src="/logo.svg" alt="Keyway" class="w-8 h-8">
+        <BrandLogo :size="32" />
         <div>
-          <p class="font-bold text-lg leading-none text-zinc-900 dark:text-white">Keyway</p>
+          <p class="font-bold text-lg leading-none text-zinc-900 dark:text-white">{{ brand.brand_name }}</p>
           <p class="text-[11px] text-zinc-500">Logistics Operations</p>
         </div>
       </div>
@@ -123,8 +124,8 @@ async function installApp() {
 
     <!-- Mobile topbar -->
     <header class="lg:hidden sticky top-0 z-30 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 h-14 flex items-center px-4 gap-3">
-      <img src="/logo.svg" alt="Keyway" class="w-7 h-7">
-      <p class="font-bold text-zinc-900 dark:text-white flex-1">Keyway</p>
+      <BrandLogo :size="28" />
+      <p class="font-bold text-zinc-900 dark:text-white flex-1">{{ brand.brand_name }}</p>
       <UPopover v-model:open="bellOpenMobile" :popper="{ placement: 'bottom-end' }">
         <UButton icon="i-lucide-bell" variant="ghost" color="neutral" aria-label="Notifications" class="relative">
           <span v-if="unread" class="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">{{ unread > 99 ? '99+' : unread }}</span>
@@ -159,8 +160,8 @@ async function installApp() {
       <template #content>
         <div class="flex flex-col h-full bg-white dark:bg-zinc-900">
           <div class="flex items-center gap-2 px-4 h-14 border-b border-zinc-200 dark:border-zinc-800">
-            <img src="/logo.svg" alt="" class="w-7 h-7">
-            <p class="font-bold">Keyway</p>
+            <BrandLogo :size="28" />
+            <p class="font-bold">{{ brand.brand_name }}</p>
             <UButton class="ml-auto" icon="i-lucide-x" variant="ghost" color="neutral" size="sm" aria-label="Close menu" @click="mobileOpen = false" />
           </div>
           <nav class="flex-1 overflow-y-auto p-3 space-y-4">
@@ -235,7 +236,7 @@ async function installApp() {
         <slot />
       </div>
       <footer class="hidden lg:block mt-auto py-3 px-6 text-[11px] text-zinc-400 border-t border-zinc-200 dark:border-zinc-800">
-        Keyway - modular logistics operations platform · NGN · COD-first
+        {{ brand.brand_name }} · Amounts in Naira
       </footer>
     </main>
 
@@ -262,15 +263,15 @@ async function installApp() {
     </nav>
 
     <!-- iOS install help (Safari has no programmatic install prompt) -->
-    <UModal v-model:open="showInstallHelp" title="Install Keyway on your iPhone / iPad">
+    <UModal v-model:open="showInstallHelp" :title="`Add ${brand.brand_name} to your iPhone or iPad`">
       <template #body>
         <ol class="list-decimal list-inside space-y-2.5 text-sm text-zinc-700 dark:text-zinc-300">
-          <li>Open <strong>keyway</strong> in <strong>Safari</strong> (installing requires Safari).</li>
+          <li>Open this website in <strong>Safari</strong> (this only works in Safari).</li>
           <li>Tap the <strong>Share</strong> button <UIcon name="i-lucide-share" class="w-4 h-4 inline-block align-[-3px]" /> in the toolbar.</li>
           <li>Scroll and tap <strong>Add to Home Screen</strong>.</li>
-          <li>Tap <strong>Add</strong> - Keyway launches full-screen like a native app.</li>
+          <li>Tap <strong>Add</strong> - it opens full-screen like any other app.</li>
         </ol>
-        <p class="text-xs text-zinc-400 mt-4">Already installed? This button hides itself when the app runs in standalone mode.</p>
+        <p class="text-xs text-zinc-400 mt-4">Already added? This button hides itself once the app is on your home screen.</p>
       </template>
       <template #footer>
         <div class="flex justify-end w-full">

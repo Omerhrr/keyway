@@ -17,7 +17,7 @@ onMounted(load)
     <div class="mb-3">
       <UInput v-model="q" icon="i-lucide-search" placeholder="Name or phone…" @keydown.enter="load" />
     </div>
-    <DataTable :columns="[
+    <DataTable export-title="Customers" :columns="[
       { key: 'name', label: 'Customer' },
       { key: 'phone', label: 'Phone' },
       { key: 'alt_phone', label: 'Alt phone' },

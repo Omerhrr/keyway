@@ -23,7 +23,7 @@ const totals = computed(() => {
                 :sub="totals.balance < 0 ? 'Charges currently exceed collections' : 'Money owed to you'" />
     </div>
 
-    <DataTable :columns="[
+    <DataTable export-title="My statement" :columns="[
       { key: 'date', label: 'Date' },
       { key: 'type', label: 'Type' },
       { key: 'label', label: 'Description' },
@@ -32,8 +32,8 @@ const totals = computed(() => {
       { key: 'status', label: 'Status' },
     ]" :rows="(data?.lines || []).map(l => ({
       ...l, date: fmtDate(l.date),
-      credit: l.credit_kobo ? fmtNaira(l.credit_kobo) : '—',
-      debit: l.debit_kobo ? fmtNaira(l.debit_kobo) : '—',
+      credit: l.credit_kobo ? fmtNaira(l.credit_kobo) : '-',
+      debit: l.debit_kobo ? fmtNaira(l.debit_kobo) : '-',
     }))" :loading="loading" empty-title="No statement lines yet">
       <template #type="{ row }">
         <UBadge :color="row.type === 'COD_COLLECTION' ? 'success' : row.type === 'CHARGE' ? 'warning' : 'primary'" variant="subtle" size="xs">

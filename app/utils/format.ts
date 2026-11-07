@@ -12,21 +12,21 @@ export function toKobo(naira: number | string | null | undefined): number {
 }
 
 export function fmtDate(v: string | null | undefined): string {
-  if (!v) return '—'
+  if (!v) return '-'
   const d = new Date(v.endsWith('Z') || v.includes('+') ? v : v + 'Z')
   if (isNaN(d.getTime())) return v
   return d.toLocaleDateString('en-NG', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 export function fmtDateTime(v: string | null | undefined): string {
-  if (!v) return '—'
+  if (!v) return '-'
   const d = new Date(v.endsWith('Z') || v.includes('+') ? v : v + 'Z')
   if (isNaN(d.getTime())) return v
   return d.toLocaleString('en-NG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 export function titleize(s: string | null | undefined): string {
-  if (!s) return '—'
+  if (!s) return '-'
   return s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 }
 

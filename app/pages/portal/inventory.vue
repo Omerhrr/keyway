@@ -10,9 +10,9 @@ onMounted(async () => {
 <template>
   <div>
     <p class="text-sm text-zinc-500 mb-4">Stock currently held in our warehouses on your behalf.</p>
-    <DataTable :columns="[
+    <DataTable export-title="My stock" :columns="[
       { key: 'name', label: 'Product' },
-      { key: 'sku', label: 'SKU' },
+      { key: 'sku', label: 'Product code' },
       { key: 'physical', label: 'Physical', align: 'right' },
       { key: 'reserved', label: 'Reserved', align: 'right' },
       { key: 'available', label: 'Available', align: 'right' },

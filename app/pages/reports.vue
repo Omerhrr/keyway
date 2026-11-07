@@ -32,7 +32,7 @@ const maxTrend = computed(() => Math.max(1, ...(fin.value?.trend_30d || []).map(
 
 const datasets = [
   { label: 'Orders', key: 'orders', icon: 'i-lucide-package' },
-  { label: 'Ledger', key: 'ledger', icon: 'i-lucide-book-open' },
+  { label: 'Books', key: 'ledger', icon: 'i-lucide-book-open' },
   { label: 'Settlements', key: 'settlements', icon: 'i-lucide-hand-coins' },
   { label: 'COD', key: 'cod', icon: 'i-lucide-banknote' },
   { label: 'Vendors', key: 'vendors', icon: 'i-lucide-store' },
@@ -54,7 +54,7 @@ async function exportCsv(key: string) {
     a.download = `keyway-${key}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    useToast().add({ title: `${key} exported`, description: 'CSV downloaded.', color: 'success' })
+    useToast().add({ title: `${key} exported`, description: 'File downloaded.', color: 'success' })
   } catch (e) {
     useToast().add({ title: 'Export failed', description: errMsg(e), color: 'error' })
   } finally { exporting.value = '' }
@@ -66,7 +66,7 @@ async function exportCsv(key: string) {
     <PageHeader title="Reports & Analytics" subtitle="Operational, financial and WhatsApp-intelligence reporting.">
       <template #actions>
         <UDropdownMenu :items="[datasets.map(d => ({ label: d.label, icon: d.icon, onSelect: () => exportCsv(d.key) }))]">
-          <UButton variant="soft" color="neutral" icon="i-lucide-download" :loading="!!exporting">Export CSV</UButton>
+          <UButton variant="soft" color="neutral" icon="i-lucide-download" :loading="!!exporting">Export to Excel/CSV</UButton>
         </UDropdownMenu>
       </template>
     </PageHeader>
@@ -188,7 +188,7 @@ async function exportCsv(key: string) {
 
         <!-- 30D REVENUE VS EXPENSE -->
         <div class="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5" v-if="fin">
-          <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-4">Revenue vs expenses - 30 days <span class="text-xs font-normal text-zinc-400">(ledger-derived)</span></h3>
+          <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-4">Revenue vs expenses - 30 days <span class="text-xs font-normal text-zinc-400">(from your books)</span></h3>
           <div class="relative h-40">
             <div class="absolute inset-0 flex items-end gap-px">
               <div v-for="d in fin.trend_30d" :key="d.day" class="flex-1 flex items-end gap-px group">
@@ -228,7 +228,7 @@ async function exportCsv(key: string) {
         <!-- VENDOR PERFORMANCE -->
         <div class="lg:col-span-3 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
           <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-3">Vendor performance scorecard</h3>
-          <DataTable :columns="[
+          <DataTable export-title="Report" :columns="[
             { key: 'vendor', label: 'Vendor' },
             { key: 'orders', label: 'Orders', align: 'right' },
             { key: 'delivered', label: 'Delivered', align: 'right' },
@@ -240,7 +240,7 @@ async function exportCsv(key: string) {
           ]" :rows="vendors.map(v => ({
             ...v,
             rate: `${v.delivery_rate}%`,
-            cycle: v.avg_cycle_hours != null ? `${v.avg_cycle_hours}h` : '—',
+            cycle: v.avg_cycle_hours != null ? `${v.avg_cycle_hours}h` : '-',
             cod: fmtNaira(v.cod_verified_kobo),
             charges: fmtNaira(v.charges_kobo),
             outstanding: fmtNaira(v.outstanding_payable_kobo),

@@ -95,18 +95,18 @@ async function exportCatalog() {
     <PageHeader title="Product Catalog" subtitle="Vendor-owned products with variants and WhatsApp-friendly aliases for natural-language matching.">
       <template #actions>
         <UButton variant="soft" color="neutral" icon="i-lucide-download" :loading="exporting" @click="exportCatalog">Export</UButton>
-        <UButton variant="soft" color="neutral" icon="i-lucide-upload" @click="showImport = true">Import CSV</UButton>
+        <UButton variant="soft" color="neutral" icon="i-lucide-upload" @click="showImport = true">Import from file</UButton>
         <UButton icon="i-lucide-plus" @click="showNew = true">New product</UButton>
       </template>
     </PageHeader>
 
     <div class="flex gap-2 mb-3 flex-wrap items-center">
-      <UInput v-model="q" icon="i-lucide-search" placeholder="Search name, SKU…" @keydown.enter="load" />
+      <UInput v-model="q" icon="i-lucide-search" placeholder="Search name or product code..." @keydown.enter="load" />
       <USelect v-model="vendorId" :items="[{ label: 'All vendors', value: 0 }, ...vendors.map(v => ({ label: v.name, value: v.id }))]" class="w-52" @change="load" />
       <UCheckbox v-model="lowOnly" label="Low stock" @update:model-value="load" />
     </div>
 
-    <DataTable :columns="[
+    <DataTable export-title="Products" :columns="[
       { key: 'name', label: 'Product' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'category', label: 'Category' },
@@ -115,9 +115,9 @@ async function exportCatalog() {
       { key: 'variants', label: 'Variants' },
     ]" :rows="products.map(p => ({
       ...p, vendor_name: vendors.find(v => v.id === p.vendor_id)?.name || `#${p.vendor_id}`,
-      price: p.default_sell_price_kobo ? fmtNaira(p.default_sell_price_kobo) : '—',
+      price: p.default_sell_price_kobo ? fmtNaira(p.default_sell_price_kobo) : '-',
       stock: String(p.qty_available ?? 0) + (p.low_stock ? ' ⚠' : ''),
-      variants: (p.variants || []).map(v => v.name).join(', ') || '—',
+      variants: (p.variants || []).map(v => v.name).join(', ') || '-',
     }))" :loading="loading" empty-title="No products" empty-hint="Add products per vendor with aliases like 'sneakers' for WhatsApp matching.">
       <template #name="{ row }">
         <p class="font-medium text-zinc-800 dark:text-zinc-200">{{ row.name }}</p>
@@ -131,7 +131,7 @@ async function exportCatalog() {
           <UFormField label="Vendor">
             <USelect v-model="form.vendor_id" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" />
           </UFormField>
-          <UFormField label="SKU"><UInput v-model="form.sku" class="w-full" /></UFormField>
+          <UFormField label="Product code"><UInput v-model="form.sku" class="w-full" /></UFormField>
           <UFormField label="Name"><UInput v-model="form.name" class="w-full" /></UFormField>
           <UFormField label="Category"><UInput v-model="form.category" class="w-full" /></UFormField>
           <UFormField label="Default price (₦)"><UInput v-model="form.price_naira" class="w-full" /></UFormField>
@@ -146,21 +146,21 @@ async function exportCatalog() {
       </template>
     </UModal>
 
-    <!-- Import CSV/XLSX modal (Phase 6D) -->
-    <UModal v-model:open="showImport" title="Import catalog (CSV / Excel)">
+    <!-- Import from file/XLSX modal (Phase 6D) -->
+    <UModal v-model:open="showImport" title="Import products from a file">
       <template #body>
         <div class="space-y-3">
           <UFormField label="Vendor" description="Products are imported into this vendor's own catalog.">
             <USelect v-model="importVendorId" placeholder="Choose vendor" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" />
           </UFormField>
-          <UFormField label="File" hint=".csv or .xlsx, up to 5MB">
+          <UFormField label="File" hint=".csv or .xlsx, up to 5 MB">
             <input type="file" accept=".csv,.xlsx,.xlsm,text/csv"
                    class="w-full text-xs text-zinc-500 file:mr-2 file:rounded-md file:border-0 file:bg-zinc-100 dark:file:bg-zinc-800 file:px-3 file:py-1.5 file:text-xs"
                    @change="onImportFile" aria-label="Catalog file" />
           </UFormField>
           <UAlert color="neutral" variant="subtle" icon="i-lucide-table-2"
                   title="Expected columns"
-                  description="sku*, name*, category, aliases (pipe-separated), sell_price (naira), opening_stock, reorder_level. Existing SKUs are updated; aliases are added without duplicates." />
+                  description="Columns: sku*, name*, category, aliases (separate with |), sell_price (naira), opening_stock, reorder_level. Products with an existing code are updated." />
           <div v-if="importResult" class="text-xs bg-zinc-50 dark:bg-zinc-800/60 rounded-lg p-3 space-y-1">
             <p><span class="text-emerald-600 font-semibold">{{ importResult.created }}</span> created ·
                <span class="font-semibold">{{ importResult.updated }}</span> updated ·

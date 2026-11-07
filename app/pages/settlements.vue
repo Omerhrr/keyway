@@ -85,7 +85,7 @@ async function pay() {
       </template>
     </PageHeader>
 
-    <DataTable :columns="[
+    <DataTable export-title="Settlements" :columns="[
       { key: 'reference', label: 'Reference' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'gross', label: 'Gross collections', align: 'right' },
@@ -96,7 +96,7 @@ async function pay() {
     ]" :rows="settlements.map(s => ({
       ...s,
       gross: fmtNaira(s.gross_kobo), charges: fmtNaira(s.charges_kobo),
-      net: fmtNaira(s.net_kobo), paid: s.paid_kobo ? fmtNaira(s.paid_kobo) : '—',
+      net: fmtNaira(s.net_kobo), paid: s.paid_kobo ? fmtNaira(s.paid_kobo) : '-',
     }))" :loading="loading" clickable empty-title="No settlements yet"
       empty-hint="Build one from verified collections and applied charges." @row-click="open">
       <template #reference="{ row }"><span class="font-mono font-semibold text-primary-600">{{ row.reference }}</span></template>
@@ -148,9 +148,9 @@ async function pay() {
               <tbody>
                 <tr v-for="i in detail.items" :key="i.id" class="border-t border-zinc-100 dark:border-zinc-800">
                   <td class="px-3 py-2"><UBadge :color="i.type === 'COLLECTION' ? 'success' : 'warning'" variant="subtle" size="xs">{{ i.type }}</UBadge></td>
-                  <td class="px-3 py-2 font-mono text-xs">{{ i.order_reference || '—' }}</td>
-                  <td class="px-3 py-2 text-right">{{ i.gross_kobo ? fmtNaira(i.gross_kobo) : '—' }}</td>
-                  <td class="px-3 py-2 text-right pr-3 text-amber-600">{{ i.deduction_kobo ? `-${fmtNaira(i.deduction_kobo)}` : '—' }}</td>
+                  <td class="px-3 py-2 font-mono text-xs">{{ i.order_reference || '-' }}</td>
+                  <td class="px-3 py-2 text-right">{{ i.gross_kobo ? fmtNaira(i.gross_kobo) : '-' }}</td>
+                  <td class="px-3 py-2 text-right pr-3 text-amber-600">{{ i.deduction_kobo ? `-${fmtNaira(i.deduction_kobo)}` : '-' }}</td>
                 </tr>
               </tbody>
             </table>

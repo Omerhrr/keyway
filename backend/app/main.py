@@ -56,12 +56,13 @@ from app.modules.settlements import router as settlements_router  # noqa: E402
 from app.modules.ledger import router as ledger_router  # noqa: E402
 from app.modules.reports import router as reports_router  # noqa: E402
 from app.modules.activity import router as activity_router  # noqa: E402
+from app.modules.appearance import router as appearance_router  # noqa: E402
 from app.modules.portal import router as portal_router  # noqa: E402
 
 for r in (identity_router, vendors_router, catalog_router, inventory_router, orders_router,
           customers_router, confirmations_router, conversations_router, whatsapp_router,
           delivery_router, cod_router, charges_router, settlements_router, ledger_router,
-          reports_router, activity_router, portal_router):
+          reports_router, activity_router, portal_router, appearance_router):
     app.include_router(r)
 
 

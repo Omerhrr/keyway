@@ -92,7 +92,7 @@ async function approveExpense(e: any, ok: boolean) {
 
 <template>
   <div>
-    <PageHeader title="Finance & Ledger" subtitle="Double-entry books. Posted journals are immutable - corrections use reversals." />
+    <PageHeader title="Finance" subtitle="Your books. Posted entries cannot be edited. To fix a mistake, reverse the entry and post a new one." />
 
     <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
 
@@ -191,7 +191,7 @@ async function approveExpense(e: any, ok: boolean) {
       <div class="mb-3">
         <UButton icon="i-lucide-plus" @click="showExpense = true">Register expense</UButton>
       </div>
-      <DataTable :columns="[
+      <DataTable export-title="Expenses" :columns="[
         { key: 'category', label: 'Category' },
         { key: 'description', label: 'Description' },
         { key: 'payee', label: 'Payee' },
@@ -212,7 +212,7 @@ async function approveExpense(e: any, ok: boolean) {
 
     <!-- BANK -->
     <template v-else>
-      <DataTable :columns="[
+      <DataTable export-title="Accounts" :columns="[
         { key: 'txn_date', label: 'Date' },
         { key: 'account_name', label: 'Account' },
         { key: 'narration', label: 'Narration' },
@@ -237,7 +237,7 @@ async function approveExpense(e: any, ok: boolean) {
             <UFormField :label="i === 0 ? 'Credit ₦' : ''"><UInput v-model="l.credit_naira" class="w-full" /></UFormField>
           </div>
           <UButton size="xs" variant="soft" icon="i-lucide-plus" @click="jLines.push({ account_id: 0, debit_naira: '', credit_naira: '' })">Add line</UButton>
-          <UAlert color="info" variant="subtle" icon="i-lucide-scale" title="Total debits must equal total credits - the API rejects unbalanced journals." />
+          <UAlert color="info" variant="subtle" icon="i-lucide-scale" title="Total debits must equal total credits. Entries that do not balance are rejected." />
         </div>
       </template>
       <template #footer>

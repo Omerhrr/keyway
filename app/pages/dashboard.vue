@@ -47,7 +47,7 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
       </div>
 
       <!-- Pipelines -->
-      <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Pipelines & queues</p>
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Work in progress</p>
       <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
         <StatCard label="Awaiting processing" :value="d.awaiting_processing" icon="i-lucide-clock" tone="warning" to="/orders" />
         <StatCard label="Awaiting customer" :value="d.awaiting_customer_confirmation" icon="i-lucide-phone-call" to="/confirmations" />
@@ -89,7 +89,7 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
               { label: 'Review WhatsApp drafts', hint: `${d.drafts_pending_review} waiting`, to: '/drafts', icon: 'i-lucide-file-input' },
               { label: 'Confirm customers', hint: `${d.awaiting_customer_confirmation} in queue`, to: '/confirmations', icon: 'i-lucide-phone-call' },
               { label: 'Dispatch ready orders', hint: `${d.ready_for_dispatch} ready`, to: '/dispatch', icon: 'i-lucide-truck' },
-              { label: 'Reconcile COD', hint: `${d.pending_cod_collections} pending`, to: '/cod', icon: 'i-lucide-hand-coins' },
+              { label: 'Check cash collected', hint: `${d.pending_cod_collections} pending`, to: '/cod', icon: 'i-lucide-hand-coins' },
             ]" :key="q.to" :to="q.to"
               class="flex items-start gap-3 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-primary-400 hover:bg-primary-50/40 dark:hover:bg-primary-950/20 transition-colors"
             >
