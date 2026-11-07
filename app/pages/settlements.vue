@@ -79,7 +79,7 @@ async function pay() {
 
 <template>
   <div>
-    <PageHeader title="Vendor Settlements" subtitle="Net vendor payable = verified collections − authorized charges − adjustments. Approval and payment are separately auditable.">
+    <PageHeader title="Vendor Settlements" subtitle="What a vendor is owed = verified cash collected, minus charges and adjustments. Approving and paying are recorded separately.">
       <template #actions>
         <UButton icon="i-lucide-calculator" @click="showBuild = true">Build settlement</UButton>
       </template>

@@ -114,9 +114,9 @@ const missingList = computed(() => selected.value?.missing_fields || [])
 
 <template>
   <div>
-    <PageHeader title="Order Drafts" subtitle="AI-prepared drafts from WhatsApp messages. Correct fields, resolve products, confirm to create orders.">
+    <PageHeader title="Order Drafts" subtitle="Orders picked up from WhatsApp messages. Check the details, match the products, then confirm to create each order.">
       <template #actions>
-        <UTabs :items="filters" :model-value="filter" size="xs" @update:model-value="(v: any) => { filter = typeof v === 'string' ? v : filter; load() }" />
+        <div class="overflow-x-auto thin-scroll max-w-full"><UTabs :content="false" class="min-w-max" :ui="{ list: 'w-max', trigger: 'shrink-0 whitespace-nowrap' }" :items="filters" :model-value="filter" size="xs" @update:model-value="(v: any) => { filter = typeof v === 'string' ? v : filter; load() }" /></div>
       </template>
     </PageHeader>
 

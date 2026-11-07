@@ -94,11 +94,11 @@ async function approveExpense(e: any, ok: boolean) {
   <div>
     <PageHeader title="Finance" subtitle="Your books. Posted entries cannot be edited. To fix a mistake, reverse the entry and post a new one." />
 
-    <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
+    <ScrollTabs :items="tabs" v-model="tab" class="mb-4" />
 
     <!-- OVERVIEW -->
     <template v-if="tab === 'overview'">
-      <div v-if="pnl" class="grid lg:grid-cols-3 gap-5 mb-6">
+      <div v-if="pnl" class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
           <h3 class="font-semibold mb-3 text-zinc-700 dark:text-zinc-200">Income statement</h3>
           <div class="space-y-1.5 text-sm">
@@ -232,7 +232,7 @@ async function approveExpense(e: any, ok: boolean) {
         <div class="space-y-3">
           <UFormField label="Memo"><UInput v-model="jMemo" class="w-full" placeholder="e.g. Owner draw, correction..." /></UFormField>
           <div v-for="(l, i) in jLines" :key="i" class="grid grid-cols-[1fr_100px_100px] gap-2 items-end">
-            <UFormField :label="i === 0 ? 'Account' : ''"><USelect v-model="l.account_id" class="w-full" :items="accountOptions" /></UFormField>
+            <UFormField :label="i === 0 ? 'Account' : ''"><USelect placeholder="Choose..." @update:model-value="(v: any) => { l.account_id = v }" :model-value="l.account_id || undefined" class="w-full" :items="accountOptions" /></UFormField>
             <UFormField :label="i === 0 ? 'Debit ₦' : ''"><UInput v-model="l.debit_naira" class="w-full" /></UFormField>
             <UFormField :label="i === 0 ? 'Credit ₦' : ''"><UInput v-model="l.credit_naira" class="w-full" /></UFormField>
           </div>

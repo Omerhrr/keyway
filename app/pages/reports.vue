@@ -63,7 +63,7 @@ async function exportCsv(key: string) {
 
 <template>
   <div>
-    <PageHeader title="Reports & Analytics" subtitle="Operational, financial and WhatsApp-intelligence reporting.">
+    <PageHeader title="Reports & Analytics" subtitle="How orders, deliveries and money are doing.">
       <template #actions>
         <UDropdownMenu :items="[datasets.map(d => ({ label: d.label, icon: d.icon, onSelect: () => exportCsv(d.key) }))]">
           <UButton variant="soft" color="neutral" icon="i-lucide-download" :loading="!!exporting">Export to Excel/CSV</UButton>
@@ -74,23 +74,23 @@ async function exportCsv(key: string) {
     <div v-if="loading" class="py-20 text-center text-zinc-400"><UIcon name="i-lucide-loader-circle" class="animate-spin w-6 h-6" /></div>
 
     <template v-else>
-      <div class="grid lg:grid-cols-3 gap-5">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <!-- revenue -->
         <div class="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
           <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-4">Collections - last 14 days</h3>
-          <div class="flex items-end gap-1.5 h-44">
+          <div class="overflow-x-auto thin-scroll"><div class="flex items-end gap-1.5 h-44 min-w-[420px]">
             <div v-for="r in revenue" :key="r.day" class="flex-1 flex flex-col items-center gap-1 group">
               <span class="text-[9px] text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity">₦{{ r.amount.toLocaleString() }}</span>
               <div class="w-full bg-primary-500/80 hover:bg-primary-500 rounded-t-md transition-all" :style="{ height: `${Math.max(3, (r.amount / maxRev) * 100)}%` }" />
               <span class="text-[9px] text-zinc-400">{{ r.day }}</span>
             </div>
-          </div>
+          </div></div>
         </div>
 
         <!-- delivery perf -->
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5" v-if="delivery">
           <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-3">Delivery performance</h3>
-          <div class="grid grid-cols-3 gap-2 mb-4">
+          <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 2xl:grid-cols-3 gap-2 mb-4">
             <StatCard label="Success" :value="`${delivery.success_rate}%`" tone="success" />
             <StatCard label="Delivered" :value="delivery.delivered" />
             <StatCard label="Failed" :value="delivery.failed" tone="error" />
@@ -107,7 +107,7 @@ async function exportCsv(key: string) {
 
         <!-- whatsapp -->
         <div class="lg:col-span-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5" v-if="wa">
-          <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">WhatsApp intelligence</h3>
+          <h3 class="font-semibold text-zinc-700 dark:text-zinc-200 mb-1">WhatsApp activity</h3>
           <p class="text-xs text-zinc-400 mb-4">{{ wa.inbound_messages }} inbound messages · {{ wa.drafts_created }} drafts · {{ wa.conversion_rate }}% draft→order conversion · {{ wa.unassigned_senders }} unidentified senders</p>
           <div class="space-y-2">
             <div v-for="row in intentRows" :key="row.intent" class="flex items-center gap-3">

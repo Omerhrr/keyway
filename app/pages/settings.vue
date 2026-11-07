@@ -302,10 +302,7 @@ function copyWebhook() {
 <template>
   <div>
     <PageHeader title="Settings" subtitle="Staff and roles, features, appearance, printed documents, pricing and messaging." />
-    <div class="overflow-x-auto thin-scroll mb-4 pb-1">
-      <UTabs :items="tabs" v-model:model-value="tab" :content="false" class="min-w-max"
-             :ui="{ list: 'w-max', trigger: 'shrink-0 whitespace-nowrap' }" />
-    </div>
+    <ScrollTabs :items="tabs" v-model="tab" class="mb-4" />
 
     <SettingsAppearance v-if="tab === 'appearance'" />
     <SettingsDocuments v-else-if="tab === 'documents'" />
@@ -410,7 +407,7 @@ function copyWebhook() {
 
     <!-- NOTIFICATIONS -->
     <template v-else-if="tab === 'notify'">
-      <div class="grid lg:grid-cols-3 gap-5">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div class="lg:col-span-2">
           <div class="flex items-center gap-2 mb-3 flex-wrap">
             <UButton v-if="canManageNotify" icon="i-lucide-plus" @click="showNRule = true">New rule</UButton>
@@ -458,7 +455,7 @@ function copyWebhook() {
 
     <!-- WHATSAPP -->
     <template v-else-if="tab === 'whatsapp' && on('whatsapp')">
-      <div class="grid lg:grid-cols-2 gap-5">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5" v-if="account">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-semibold text-zinc-700 dark:text-zinc-200">WhatsApp connection</h3>
@@ -471,7 +468,7 @@ function copyWebhook() {
               <USelect v-model="waForm.mode" class="w-full"
                        :items="[{ label: 'Practice (no WhatsApp account needed)', value: 'SIMULATOR' }, { label: 'Live (real WhatsApp messages)', value: 'CLOUD_API' }]" />
             </UFormField>
-            <UFormField label="Phone number ID" hint="Found in your Meta WhatsApp setup page">
+            <UFormField label="Phone number ID" help="Found in your Meta WhatsApp setup page">
               <UInput v-model="waForm.phone_number_id" class="w-full" placeholder="e.g. 123456789012345" />
             </UFormField>
             <UFormField label="WhatsApp Business Account ID">
@@ -514,9 +511,9 @@ function copyWebhook() {
           <UFormField label="Email"><UInput v-model="form.email" type="email" class="w-full" /></UFormField>
           <UFormField label="Password"><UInput v-model="form.password" type="password" class="w-full" /></UFormField>
           <UFormField label="Role">
-            <USelect v-model="form.role_id" class="w-full" :items="(roles?.roles || []).map(r => ({ label: r.name, value: r.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.role_id = v }" :model-value="form.role_id || undefined" class="w-full" :items="(roles?.roles || []).map(r => ({ label: r.name, value: r.id }))" />
           </UFormField>
-          <UFormField label="Home warehouse" hint="Preselects this branch when the user creates orders or filters inventory" class="sm:col-span-2">
+          <UFormField label="Home warehouse" help="Preselects this branch when the user creates orders or filters inventory" class="sm:col-span-2">
             <USelect v-model="form.warehouse_id" class="w-full" :items="[{ label: 'No home warehouse', value: 0 }, ...warehouses.filter(w => w.is_active).map(w => ({ label: w.name, value: w.id }))]" />
           </UFormField>
         </div>
@@ -541,7 +538,7 @@ function copyWebhook() {
             <USelect v-model="ruleForm.scope" class="w-full" :items="[{ label: 'Global (default schedule)', value: 'GLOBAL' }, { label: 'Vendor override', value: 'VENDOR' }]" />
           </UFormField>
           <UFormField v-if="ruleForm.scope === 'VENDOR'" label="Vendor">
-            <USelect v-model="ruleForm.vendor_id" class="w-full" :items="(vendorsList || []).map(v => ({ label: v.name, value: v.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { ruleForm.vendor_id = v }" :model-value="ruleForm.vendor_id || undefined" class="w-full" :items="(vendorsList || []).map(v => ({ label: v.name, value: v.id }))" />
           </UFormField>
           <UFormField label="Amount (₦)"><UInput v-model="ruleForm.amount_naira" class="w-full" /></UFormField>
         </div>
@@ -575,7 +572,7 @@ function copyWebhook() {
             <USelect v-model="nForm.role_name" class="w-full" :items="(roles?.roles || []).map(r => ({ label: r.name, value: r.name }))" />
           </UFormField>
           <UFormField v-if="nForm.target_scope === 'USER'" label="User">
-            <USelect v-model="nForm.user_id" class="w-full" :items="users.filter(u => !u.is_vendor).map(u => ({ label: `${u.full_name} (${u.email})`, value: u.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { nForm.user_id = v }" :model-value="nForm.user_id || undefined" class="w-full" :items="users.filter(u => !u.is_vendor).map(u => ({ label: `${u.full_name} (${u.email})`, value: u.id }))" />
           </UFormField>
           <p v-if="nForm.channel !== 'IN_APP'" class="text-xs text-amber-600 sm:col-span-2">
             {{ nForm.channel }} delivery attempts the real channel (WhatsApp uses the Cloud API when configured). Undeliverable messages are marked FAILED and can be retried from the audit view.
@@ -594,7 +591,7 @@ function copyWebhook() {
     <UModal v-model:open="showWh" title="New warehouse">
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
-          <UFormField label="Code" hint="Short unique code, e.g. WH-ABJ">
+          <UFormField label="Code" help="Short unique code, e.g. WH-ABJ">
             <UInput v-model="whForm.code" class="w-full" placeholder="WH-ABJ" />
           </UFormField>
           <UFormField label="Name">

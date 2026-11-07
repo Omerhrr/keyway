@@ -59,7 +59,7 @@ async function toggleStatus(v: any) {
 
 <template>
   <div>
-    <PageHeader title="Vendors" subtitle="Ecommerce businesses storing products and fulfilling orders through your warehouses.">
+    <PageHeader title="Vendors" subtitle="The businesses whose products you store and deliver.">
       <template #actions>
         <UButton icon="i-lucide-plus" @click="showNew = true">Register vendor</UButton>
       </template>

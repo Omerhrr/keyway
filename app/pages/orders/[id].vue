@@ -150,7 +150,7 @@ async function recordAttempt() {
         <UButton v-for="n in nexts.filter(s => s === 'CANCELLED')" :key="n" icon="i-lucide-ban" color="error" variant="soft" @click="askStatus(n)">Cancel order</UButton>
       </div>
 
-      <div class="grid lg:grid-cols-3 gap-5">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <!-- left column -->
         <div class="lg:col-span-2 space-y-5">
           <!-- items -->
@@ -304,7 +304,7 @@ async function recordAttempt() {
               ]" />
             </UFormField>
             <UFormField v-if="dispatchForm.mode === 'IN_HOUSE_RIDER'" label="Rider">
-              <USelect v-model="dispatchForm.rider_id" class="w-full" :items="riders.map(r => ({ label: `${r.full_name} · ${r.zone_name || ''}`, value: r.id }))" />
+              <USelect placeholder="Choose..." @update:model-value="(v: any) => { dispatchForm.rider_id = v }" :model-value="dispatchForm.rider_id || undefined" class="w-full" :items="riders.map(r => ({ label: `${r.full_name} · ${r.zone_name || ''}`, value: r.id }))" />
             </UFormField>
             <UFormField label="Delivery zone">
               <USelect v-model="dispatchForm.zone_id" class="w-full" :items="[{ label: 'No zone (manual fee)', value: 0 }, ...zones.map(z => ({ label: `${z.name} · ${fmtNaira(z.base_fee_kobo)}`, value: z.id }))]" />

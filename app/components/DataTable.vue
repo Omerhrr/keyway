@@ -64,7 +64,7 @@ async function doExcel() {
             <th
               v-for="c in columns" :key="c.key"
               class="px-4 py-2.5 text-left font-semibold text-zinc-500 dark:text-zinc-400 text-[11px] uppercase tracking-wide whitespace-nowrap"
-              :class="[c.align === 'right' ? 'text-right' : '', c.class]"
+              :class="[c.align === 'right' ? 'text-right' : '', /(date|when|added|created|expected|time)$/i.test(c.key) ? 'whitespace-nowrap' : '', c.class]"
             >
               {{ c.label }}
             </th>
@@ -93,7 +93,7 @@ async function doExcel() {
             <td
               v-for="c in columns" :key="c.key"
               class="px-4 py-2.5 align-middle"
-              :class="[c.align === 'right' ? 'text-right' : '', c.class]"
+              :class="[c.align === 'right' ? 'text-right' : '', /(date|when|added|created|expected|time)$/i.test(c.key) ? 'whitespace-nowrap' : '', c.class]"
             >
               <slot :name="c.key" :row="row" :value="row[c.key]">
                 <span class="text-zinc-700 dark:text-zinc-300">{{ row[c.key] ?? '-' }}</span>

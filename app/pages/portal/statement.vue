@@ -16,7 +16,7 @@ const totals = computed(() => {
 
 <template>
   <div>
-    <div class="grid grid-cols-3 gap-3 mb-5">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
       <StatCard label="Collections" :value="fmtNaira(totals.credits)" icon="i-lucide-banknote" tone="success" />
       <StatCard label="Charges & payouts" :value="fmtNaira(totals.debits)" icon="i-lucide-scissors" />
       <StatCard label="Balance" :value="fmtNaira(totals.balance)" icon="i-lucide-wallet" tone="primary"
@@ -32,6 +32,7 @@ const totals = computed(() => {
       { key: 'status', label: 'Status' },
     ]" :rows="(data?.lines || []).map(l => ({
       ...l, date: fmtDate(l.date),
+      label: /^[A-Z_]+$/.test(l.label || '') ? titleize(l.label) : l.label,
       credit: l.credit_kobo ? fmtNaira(l.credit_kobo) : '-',
       debit: l.debit_kobo ? fmtNaira(l.debit_kobo) : '-',
     }))" :loading="loading" empty-title="No statement lines yet">

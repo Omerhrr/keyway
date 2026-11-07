@@ -64,7 +64,7 @@ async function createOrder() {
 
 <template>
   <div>
-    <PageHeader title="Orders" subtitle="Every order from every channel - WhatsApp, portal, manual and imports.">
+    <PageHeader title="Orders" subtitle="Every order, whether it came from WhatsApp, the vendor portal, was typed in or imported.">
       <template #actions>
         <UButton icon="i-lucide-plus" @click="showNew = true">New manual order</UButton>
       </template>
@@ -105,9 +105,9 @@ async function createOrder() {
     <UModal v-model:open="showNew" :ui="{ content: 'max-w-2xl' }" title="Manual order entry">
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
-          <UFormField label="Vendor"><USelect v-model="form.vendor_id" class="w-full" :items="vendorsOptions" @update:model-value="onVendorChange" /></UFormField>
-          <UFormField label="Product"><USelect v-model="form.product_id" class="w-full" :items="products.map(p => ({ label: `${p.name} · avail ${p.qty_available}`, value: p.id }))" /></UFormField>
-          <UFormField label="Fulfilment warehouse" hint="Pick a branch or leave on Auto and the warehouse holding the stock is used">
+          <UFormField label="Vendor"><USelect placeholder="Choose..." @update:model-value="(v: any) => { form.vendor_id = v; onVendorChange(v) }" :model-value="form.vendor_id || undefined" class="w-full" :items="vendorsOptions"  /></UFormField>
+          <UFormField label="Product"><USelect placeholder="Choose..." @update:model-value="(v: any) => { form.product_id = v }" :model-value="form.product_id || undefined" class="w-full" :items="products.map(p => ({ label: `${p.name} · avail ${p.qty_available}`, value: p.id }))" /></UFormField>
+          <UFormField label="Fulfilment warehouse" help="Pick a branch or leave on Auto and the warehouse holding the stock is used">
             <USelect v-model="form.warehouse_id" class="w-full" :items="[{ label: `Auto (best stock)`, value: 0 }, ...warehouses.map(w => ({ label: w.name, value: w.id }))]" />
           </UFormField>
           <UFormField label="Customer name"><UInput v-model="form.customer_name" class="w-full" /></UFormField>
@@ -116,7 +116,7 @@ async function createOrder() {
           <UFormField label="State"><UInput v-model="form.state" class="w-full" /></UFormField>
           <UFormField label="Street / landmark" class="sm:col-span-2"><UInput v-model="form.street" class="w-full" /></UFormField>
           <UFormField label="Quantity"><UInput v-model="form.qty" type="number" min="1" class="w-full" /></UFormField>
-          <UFormField label="Unit price (₦)" hint="Leave empty to use the product's default price"><UInput v-model="form.price_naira" class="w-full" /></UFormField>
+          <UFormField label="Unit price (₦)" help="Leave empty to use the product's default price"><UInput v-model="form.price_naira" class="w-full" /></UFormField>
           <UFormField label="Instructions" class="sm:col-span-2"><UTextarea v-model="form.instructions" class="w-full" :rows="2" /></UFormField>
         </div>
       </template>

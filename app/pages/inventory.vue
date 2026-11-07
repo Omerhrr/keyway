@@ -166,14 +166,14 @@ async function cancelTransfer(t: any) {
 
 <template>
   <div>
-    <PageHeader title="Inventory & Warehouse" subtitle="Vendor-owned stock across warehouses. Every movement is auditable; adjustments need a reason.">
+    <PageHeader title="Inventory & Warehouse" subtitle="Each vendor's stock across your warehouses. Every movement is recorded and changes need a reason.">
       <template #actions>
         <UButton icon="i-lucide-arrow-right-left" variant="soft" color="neutral" @click="openTransfer">Transfer stock</UButton>
         <UButton icon="i-lucide-package-plus" @click="openReceipt">Receive stock</UButton>
       </template>
     </PageHeader>
 
-    <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
+    <ScrollTabs :items="tabs" v-model="tab" class="mb-4" />
 
     <template v-if="tab === 'balances'">
       <div class="flex gap-2 mb-3 flex-wrap items-center">
@@ -298,16 +298,16 @@ async function cancelTransfer(t: any) {
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Vendor">
-            <USelect v-model="trForm.vendor_id" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" @update:model-value="onTrVendor" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { trForm.vendor_id = v; onTrVendor(v) }" :model-value="trForm.vendor_id || undefined" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))"  />
           </UFormField>
           <UFormField label="Product">
-            <USelect v-model="trForm.product_id" class="w-full" :items="trProducts.map(p => ({ label: `${p.name} (${p.sku})`, value: p.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { trForm.product_id = v }" :model-value="trForm.product_id || undefined" class="w-full" :items="trProducts.map(p => ({ label: `${p.name} (${p.sku})`, value: p.id }))" />
           </UFormField>
           <UFormField label="From warehouse">
-            <USelect v-model="trForm.from_warehouse_id" class="w-full" :items="warehouses.map(w => ({ label: w.name, value: w.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { trForm.from_warehouse_id = v }" :model-value="trForm.from_warehouse_id || undefined" class="w-full" :items="warehouses.map(w => ({ label: w.name, value: w.id }))" />
           </UFormField>
           <UFormField label="To warehouse">
-            <USelect v-model="trForm.to_warehouse_id" class="w-full" :items="warehouses.filter(w => w.id !== trForm.from_warehouse_id).map(w => ({ label: w.name, value: w.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { trForm.to_warehouse_id = v }" :model-value="trForm.to_warehouse_id || undefined" class="w-full" :items="warehouses.filter(w => w.id !== trForm.from_warehouse_id).map(w => ({ label: w.name, value: w.id }))" />
           </UFormField>
           <UFormField label="Quantity"><UInput v-model="trForm.qty" type="number" min="1" class="w-full" /></UFormField>
           <UFormField label="Reason (optional)"><UInput v-model="trForm.reason" class="w-full" placeholder="e.g. restock annex ahead of promo" /></UFormField>
@@ -332,13 +332,13 @@ async function cancelTransfer(t: any) {
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Vendor">
-            <USelect v-model="rcForm.vendor_id" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" @update:model-value="onRcVendor" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { rcForm.vendor_id = v; onRcVendor(v) }" :model-value="rcForm.vendor_id || undefined" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))"  />
           </UFormField>
           <UFormField label="Warehouse">
-            <USelect v-model="rcForm.warehouse_id" class="w-full" :items="warehouses.map(w => ({ label: w.name, value: w.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { rcForm.warehouse_id = v }" :model-value="rcForm.warehouse_id || undefined" class="w-full" :items="warehouses.map(w => ({ label: w.name, value: w.id }))" />
           </UFormField>
           <UFormField label="Product" class="sm:col-span-2">
-            <USelect v-model="rcForm.product_id" class="w-full" :items="rcProducts.map(p => ({ label: `${p.name} (${p.sku})`, value: p.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { rcForm.product_id = v }" :model-value="rcForm.product_id || undefined" class="w-full" :items="rcProducts.map(p => ({ label: `${p.name} (${p.sku})`, value: p.id }))" />
           </UFormField>
           <UFormField label="Quantity"><UInput v-model="rcForm.qty" type="number" min="1" class="w-full" /></UFormField>
           <UFormField label="Batch / shipment ref"><UInput v-model="rcForm.batch_ref" class="w-full" /></UFormField>

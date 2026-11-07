@@ -27,7 +27,7 @@ const types = computed(() => ['', 'order', 'vendor', 'order_draft', 'cod_collect
     ]" :rows="logs.map(l => ({
       ...l,
       created_at: fmtDateTime(l.created_at),
-      entity: `${l.entity_type}${l.entity_id ? ' #' + l.entity_id : ''}`,
+      entity: `${titleize(l.entity_type)}${l.entity_id ? ' #' + l.entity_id : ''}`,
       action: titleize(l.action),
     }))" :loading="loading" empty-title="No audit entries" />
   </div>

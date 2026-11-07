@@ -46,7 +46,7 @@ function reset() {
 </script>
 
 <template>
-  <div class="grid lg:grid-cols-2 gap-6">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
     <div class="space-y-5">
       <UCard>
         <template #header><p class="font-semibold">Colour</p></template>

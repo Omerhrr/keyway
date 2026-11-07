@@ -130,7 +130,7 @@ onMounted(load)
   <div>
     <PageHeader title="WhatsApp Inbox" subtitle="One inbox for every vendor conversation - orders, questions and updates." />
 
-    <div class="grid lg:grid-cols-[340px_1fr] gap-4">
+    <div class="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-4">
       <!-- List -->
       <div :class="mobileDetail ? 'hidden lg:block' : ''">
         <div class="space-y-2 mb-3">

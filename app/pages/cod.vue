@@ -110,7 +110,7 @@ async function confirmHandover(h: any) {
     </PageHeader>
     <p class="text-sm text-zinc-500 -mt-3 mb-4">Expected and collected amounts are stored separately. Only verified collections become vendor funds.</p>
 
-    <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
+    <ScrollTabs :items="tabs" v-model="tab" class="mb-4" />
 
     <template v-if="tab === 'collections'">
       <div class="flex gap-1.5 mb-3 flex-wrap">
@@ -171,7 +171,7 @@ async function confirmHandover(h: any) {
       <template #body>
         <div class="space-y-3">
           <UFormField label="Delivered COD order">
-            <USelect v-model="form.order_id" class="w-full" :items="orders.map(o => ({ label: `${o.reference} · ${o.customer_name} · expected ${fmtNaira(o.cod_amount_kobo)}`, value: o.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.order_id = v }" :model-value="form.order_id || undefined" class="w-full" :items="orders.map(o => ({ label: `${o.reference} · ${o.customer_name} · expected ${fmtNaira(o.cod_amount_kobo)}`, value: o.id }))" />
           </UFormField>
           <UFormField label="Amount collected (₦)"><UInput v-model="form.collected_naira" class="w-full" /></UFormField>
           <UFormField label="Method">
@@ -200,13 +200,13 @@ async function confirmHandover(h: any) {
           </div>
           <UAlert color="info" variant="subtle" icon="i-lucide-book-check"
                   title="Posting plan" description="Dr COD Clearing (collected) / Cr Vendor Payables · charges on the order recognized as Logistics Revenue." />
-          <UFormField label="Amount actually collected (₦)" hint="Stored separately from the expected amount">
+          <UFormField label="Amount actually collected (₦)" help="Stored separately from the expected amount">
             <UInput v-model="verifyForm.collected_naira" class="w-full" />
           </UFormField>
           <UFormField label="Method">
             <USelect v-model="verifyForm.method" class="w-full" :items="[{ label: 'Cash', value: 'CASH' }, { label: 'Bank transfer', value: 'BANK_TRANSFER' }, { label: 'Digital', value: 'DIGITAL' }]" />
           </UFormField>
-          <UFormField label="Note" hint="Required when the amounts differ">
+          <UFormField label="Note" help="Required when the amounts differ">
             <UTextarea v-model="verifyForm.note" :rows="2" class="w-full" />
           </UFormField>
         </div>
@@ -224,7 +224,7 @@ async function confirmHandover(h: any) {
       <template #body>
         <div class="space-y-3">
           <UFormField label="Rider"><USelect v-model="hForm.rider_id" class="w-full" :items="[{ label: 'Staff (no rider)', value: 0 }, ...riders.map(r => ({ label: r.full_name, value: r.id }))]" /></UFormField>
-          <UFormField label="Amount expected (₦)" hint="This rider's pending collections are attached automatically"><UInput v-model="hForm.amount_expected_naira" class="w-full" /></UFormField>
+          <UFormField label="Amount expected (₦)" help="This rider's pending collections are attached automatically"><UInput v-model="hForm.amount_expected_naira" class="w-full" /></UFormField>
         </div>
       </template>
       <template #footer>

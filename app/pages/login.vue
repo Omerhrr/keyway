@@ -42,7 +42,7 @@ const demoAccounts = [
 <template>
   <div class="min-h-screen flex flex-col lg:flex-row bg-white dark:bg-zinc-950">
     <!-- brand panel: follows the colour chosen in Settings -->
-    <div class="lg:w-[45%] text-white p-8 lg:p-14 flex flex-col justify-between relative overflow-hidden"
+    <div class="lg:w-[45%] text-white p-5 sm:p-8 lg:p-14 flex flex-col justify-between relative overflow-hidden"
          style="background-image: linear-gradient(135deg, var(--ui-color-primary-600), var(--ui-color-primary-800) 55%, var(--ui-color-primary-950))">
       <div class="flex items-center gap-3">
         <span class="rounded-xl bg-white/15 p-1"><BrandLogo :size="36" /></span>
@@ -51,11 +51,11 @@ const demoAccounts = [
           <p class="text-white/75 text-sm mt-1">{{ brand.tagline }}</p>
         </div>
       </div>
-      <div class="my-10 lg:my-0">
-        <h1 class="text-3xl lg:text-4xl font-bold leading-tight mb-4">{{ brand.login_headline }}</h1>
-        <p class="text-white/85 max-w-md">{{ brand.login_text }}</p>
+      <div class="my-5 lg:my-0">
+        <h1 class="text-xl sm:text-3xl lg:text-4xl font-bold leading-tight mb-2 lg:mb-4">{{ brand.login_headline }}</h1>
+        <p class="text-white/85 max-w-md hidden sm:block">{{ brand.login_text }}</p>
       </div>
-      <p class="text-white/60 text-xs">© {{ new Date().getFullYear() }} {{ brand.brand_name }}</p>
+      <p class="text-white/60 text-xs hidden lg:block">© {{ new Date().getFullYear() }} {{ brand.brand_name }}</p>
     </div>
 
     <!-- form panel -->

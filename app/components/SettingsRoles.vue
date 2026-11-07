@@ -111,7 +111,7 @@ const permsOf = (r: any) => data.value?.role_permissions[String(r.id)] || []
     </div>
 
     <div v-if="loading" class="py-10 text-center text-zinc-400"><UIcon name="i-lucide-loader-circle" class="animate-spin" /></div>
-    <div v-else class="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <div v-for="r in data.roles" :key="r.id" class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-4 flex flex-col">
         <div class="flex items-center gap-2 mb-1">
           <p class="font-semibold text-zinc-800 dark:text-zinc-200">{{ r.name }}</p>

@@ -109,13 +109,13 @@ async function createZone() {
 
 <template>
   <div>
-    <PageHeader title="Dispatch & Delivery" subtitle="Riders, third-party carriers, interstate waybills - with delivery proof and failure handling.">
+    <PageHeader title="Dispatch & Delivery" subtitle="Riders, outside carriers and long-distance waybills, with proof of delivery and failed delivery handling.">
       <template #actions>
         <UButton icon="i-lucide-plus" @click="openDispatch">Dispatch an order</UButton>
       </template>
     </PageHeader>
 
-    <UTabs :items="tabs" v-model:model-value="tab" class="mb-4" />
+    <ScrollTabs :items="tabs" v-model="tab" class="mb-4" />
 
     <DataTable export-title="Deliveries" v-if="tab === 'deliveries'" :columns="[
       { key: 'order_reference', label: 'Order' },
@@ -151,7 +151,7 @@ async function createZone() {
       <template #status="{ row }"><StatusBadge :status="row.status" /></template>
     </DataTable>
 
-    <div v-else class="grid lg:grid-cols-2 gap-5">
+    <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div>
         <div class="flex items-center justify-between mb-3">
           <h3 class="font-semibold text-zinc-700 dark:text-zinc-200">Carriers</h3>
@@ -174,7 +174,7 @@ async function createZone() {
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Ready order" class="sm:col-span-2">
-            <USelect v-model="form.order_id" class="w-full" :items="readyOrders.map(o => ({ label: `${o.reference} · ${o.customer_name} · ${[o.delivery_city, o.delivery_state].filter(Boolean).join(', ')}`, value: o.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.order_id = v }" :model-value="form.order_id || undefined" class="w-full" :items="readyOrders.map(o => ({ label: `${o.reference} · ${o.customer_name} · ${[o.delivery_city, o.delivery_state].filter(Boolean).join(', ')}`, value: o.id }))" />
           </UFormField>
           <UFormField label="Mode">
             <USelect v-model="form.mode" class="w-full" :items="[
@@ -185,7 +185,7 @@ async function createZone() {
             ]" />
           </UFormField>
           <UFormField v-if="form.mode === 'IN_HOUSE_RIDER'" label="Rider">
-            <USelect v-model="form.rider_id" class="w-full" :items="riders.map(r => ({ label: `${r.full_name} · ${r.zone_name || ''}`, value: r.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.rider_id = v }" :model-value="form.rider_id || undefined" class="w-full" :items="riders.map(r => ({ label: `${r.full_name} · ${r.zone_name || ''}`, value: r.id }))" />
           </UFormField>
           <UFormField label="Zone">
             <USelect v-model="form.zone_id" class="w-full" :items="[{ label: 'No zone', value: 0 }, ...zones.map(z => ({ label: `${z.name} · ${fmtNaira(z.base_fee_kobo)}`, value: z.id }))]" />
@@ -212,7 +212,7 @@ async function createZone() {
           <UFormField v-if="outcomeForm.to_status === 'FAILED'" label="Failure reason">
             <UInput v-model="outcomeForm.failure_reason" class="w-full" placeholder="e.g. Customer unreachable" />
           </UFormField>
-          <UFormField v-if="outcomeForm.to_status === 'DELIVERED'" label="Proof reference" hint="Photo/receipt reference from the rider">
+          <UFormField v-if="outcomeForm.to_status === 'DELIVERED'" label="Proof reference" help="Photo/receipt reference from the rider">
             <UInput v-model="outcomeForm.proof_ref" class="w-full" />
           </UFormField>
           <UFormField label="Note"><UTextarea v-model="outcomeForm.note" :rows="2" class="w-full" /></UFormField>

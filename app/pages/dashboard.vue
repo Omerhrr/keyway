@@ -67,7 +67,7 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
         <StatCard v-if="canOpen('/inventory')" label="Low stock alerts" :value="d.low_stock_alerts" icon="i-lucide-triangle-alert" :tone="d.low_stock_alerts ? 'warning' : 'neutral'" to="/inventory" />
       </div>
 
-      <div class="grid lg:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Orders by status -->
         <div v-if="canOpen('/orders')" class="bg-white dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 p-5">
           <h3 class="font-semibold text-zinc-800 dark:text-zinc-200 mb-4">Orders by status</h3>

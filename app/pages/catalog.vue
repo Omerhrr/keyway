@@ -92,7 +92,7 @@ async function exportCatalog() {
 
 <template>
   <div>
-    <PageHeader title="Product Catalog" subtitle="Vendor-owned products with variants and WhatsApp-friendly aliases for natural-language matching.">
+    <PageHeader title="Product Catalog" subtitle="Each vendor's products, with sizes and colours and the everyday names customers use for them.">
       <template #actions>
         <UButton variant="soft" color="neutral" icon="i-lucide-download" :loading="exporting" @click="exportCatalog">Export</UButton>
         <UButton variant="soft" color="neutral" icon="i-lucide-upload" @click="showImport = true">Import from file</UButton>
@@ -129,7 +129,7 @@ async function exportCatalog() {
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Vendor">
-            <USelect v-model="form.vendor_id" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.vendor_id = v }" :model-value="form.vendor_id || undefined" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" />
           </UFormField>
           <UFormField label="Product code"><UInput v-model="form.sku" class="w-full" /></UFormField>
           <UFormField label="Name"><UInput v-model="form.name" class="w-full" /></UFormField>
@@ -153,7 +153,7 @@ async function exportCatalog() {
           <UFormField label="Vendor" description="Products are imported into this vendor's own catalog.">
             <USelect v-model="importVendorId" placeholder="Choose vendor" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" />
           </UFormField>
-          <UFormField label="File" hint=".csv or .xlsx, up to 5 MB">
+          <UFormField label="File" help=".csv or .xlsx, up to 5 MB">
             <input type="file" accept=".csv,.xlsx,.xlsm,text/csv"
                    class="w-full text-xs text-zinc-500 file:mr-2 file:rounded-md file:border-0 file:bg-zinc-100 dark:file:bg-zinc-800 file:px-3 file:py-1.5 file:text-xs"
                    @change="onImportFile" aria-label="Catalog file" />
