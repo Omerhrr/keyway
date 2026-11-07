@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Text, UniqueConstraint, JSON
+from sqlalchemy import BigInteger, String, Boolean, Integer, ForeignKey, DateTime, Text, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, utcnow
 
@@ -14,7 +14,7 @@ class Product(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     category: Mapped[str] = mapped_column(String(80), default="")
     unit: Mapped[str] = mapped_column(String(20), default="pcs")
-    default_sell_price_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    default_sell_price_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     reorder_level: Mapped[int] = mapped_column(Integer, default=5)
     image_ref: Mapped[str] = mapped_column(String(255), default="")
     # ACTIVE | ARCHIVED
@@ -30,7 +30,7 @@ class ProductVariant(Base):
     name: Mapped[str] = mapped_column(String(120), default="")
     barcode: Mapped[str] = mapped_column(String(60), default="")
     attributes: Mapped[dict] = mapped_column(JSON, default=dict)
-    sell_price_kobo: Mapped[int | None] = mapped_column(Integer, nullable=True)  # overrides product default
+    sell_price_kobo: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # overrides product default
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

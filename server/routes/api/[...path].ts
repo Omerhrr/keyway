@@ -1,7 +1,8 @@
 export default defineEventHandler(async (event) => {
   const req = event.node.req
   const url = req.url || ''
-  const target = `http://127.0.0.1:8000${url}`
+  const base = process.env.KEYWAY_API_URL || 'http://127.0.0.1:8000'
+  const target = `${base}${url}`
   const { proxyRequest } = await import('h3')
   try {
     return await proxyRequest(event, target)

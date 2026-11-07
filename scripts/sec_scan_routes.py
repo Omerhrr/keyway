@@ -8,7 +8,7 @@ dependencies (get_current_user / require_staff / require_perm / get_vendor_user
 import re
 from pathlib import Path
 
-APP = Path("/home/z/my-project/backend/app/modules")
+APP = Path(__file__).resolve().parent.parent / "backend" / "app" / "modules"
 AUTH_PATTERNS = ("get_current_user", "require_staff", "require_perm",
                  "get_vendor_user", "require_vendor", "Depends(require_")
 EXEMPT = ("webhook", "health")

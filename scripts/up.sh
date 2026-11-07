@@ -1,7 +1,8 @@
 #!/bin/bash
 # Bring up the whole Keyway stack (idempotent): FastAPI :8000, LLM service :8001, Nuxt :3000.
-ZDIR="/home/z/my-project/.zscripts"
-D="/home/z/my-project/scripts/daemon.sh"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ZDIR="$ROOT/.zscripts"
+D="$ROOT/scripts/daemon.sh"
 
 kill_port() {  # kill whatever listens on a port (stale dev servers etc.)
   local port="$1"
@@ -15,10 +16,10 @@ kill_port() {  # kill whatever listens on a port (stale dev servers etc.)
   fi
 }
 
-bash "$D" keyway-api /home/z/my-project/backend /home/z/my-project/backend/start.sh
-bash "$D" llm-service /home/z/my-project/mini-services/llm-service bun run dev
+bash "$D" keyway-api $ROOT/backend $ROOT/backend/start.sh
+bash "$D" llm-service $ROOT/mini-services/llm-service bun run dev
 kill_port 3000
-bash "$D" nuxt /home/z/my-project bun run dev
+bash "$D" nuxt $ROOT bun run dev
 
 # wait for health
 for i in $(seq 1 45); do

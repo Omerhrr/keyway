@@ -1,5 +1,6 @@
 """Keyway API - modular monolith entrypoint."""
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -10,12 +11,31 @@ from app.core import audit as _audit  # noqa ensures module import
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("keyway")
 
-app = FastAPI(title=settings.APP_NAME, version="0.1.0")
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Create the schema, then bootstrap (production) or seed demo data (development).
+    Base.metadata.create_all(bind=engine)
+    from app.seed import seed_if_empty, seed_notification_rules
+    db = SessionLocal()
+    try:
+        seed_if_empty(db)
+        seed_notification_rules(db)  # idempotent: upgrades default rules on existing databases
+    finally:
+        db.close()
+    log.info("Keyway API ready (env=%s)", settings.ENV)
+    yield
+
+
+app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
+
+_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",")],
-    allow_credentials=True,
+    allow_origins=_origins,
+    # Auth is a Bearer header, not a cookie; credentialed CORS with "*" is invalid anyway.
+    allow_credentials="*" not in _origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -57,20 +77,3 @@ async def unhandled(request: Request, exc: Exception):
     log.exception("Unhandled error: %s", exc)
     detail = "Internal server error" if settings.ENV == "production" else f"Internal error: {exc}"
     return JSONResponse(status_code=500, content={"detail": detail})
-
-
-@app.on_event("startup")
-def startup():
-    # SQLite dev database: create schema, then seed demo data on first boot.
-    Base.metadata.create_all(bind=engine)
-    from app.seed import seed_if_empty, seed_notification_rules
-    db = SessionLocal()
-    try:
-        if seed_if_empty(db):
-            seed_notification_rules(db)
-        else:
-            # existing database: still upgrade default rules idempotently
-            seed_notification_rules(db)
-    finally:
-        db.close()
-    log.info("Keyway API ready")

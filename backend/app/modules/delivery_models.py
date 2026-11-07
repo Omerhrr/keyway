@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, DateTime, JSON, Float, Boolean
+from sqlalchemy import BigInteger, String, Integer, ForeignKey, DateTime, JSON, Float, Boolean
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, utcnow
 
@@ -10,7 +10,7 @@ class DeliveryZone(Base):
     name: Mapped[str] = mapped_column(String(120))
     state: Mapped[str] = mapped_column(String(80), default="", index=True)
     cities: Mapped[list] = mapped_column(JSON, default=list)
-    base_fee_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    base_fee_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -66,7 +66,7 @@ class Delivery(Base):
     rider_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     carrier_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     waybill_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    fee_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    fee_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     dispatch_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     failure_reason: Mapped[str] = mapped_column(String(255), default="")

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Text, Boolean, JSON
+from sqlalchemy import BigInteger, String, Integer, ForeignKey, DateTime, Text, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, utcnow
 
@@ -40,8 +40,8 @@ class JournalLine(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     entry_id: Mapped[int] = mapped_column(ForeignKey("journal_entries.id"), index=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), index=True)
-    debit_kobo: Mapped[int] = mapped_column(Integer, default=0)
-    credit_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    debit_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    credit_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     vendor_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     memo: Mapped[str] = mapped_column(String(255), default="")
 
@@ -51,7 +51,7 @@ class Expense(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     category: Mapped[str] = mapped_column(String(60), index=True)
     description: Mapped[str] = mapped_column(Text, default="")
-    amount_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    amount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     payment_method: Mapped[str] = mapped_column(String(30), default="CASH")
     paid_from_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     receipt_ref: Mapped[str] = mapped_column(String(255), default="")
@@ -70,7 +70,7 @@ class BankTransaction(Base):
     account_id: Mapped[int] = mapped_column(Integer, index=True)
     txn_date: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     direction: Mapped[str] = mapped_column(String(10), default="CREDIT")  # CREDIT | DEBIT
-    amount_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    amount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     bank_ref: Mapped[str] = mapped_column(String(80), default="")
     narration: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

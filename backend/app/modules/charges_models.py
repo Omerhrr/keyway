@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Text, Boolean, Float
+from sqlalchemy import BigInteger, String, Integer, ForeignKey, DateTime, Text, Boolean, Float
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, utcnow
 
@@ -17,7 +17,7 @@ class ChargeRule(Base):
     zone_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # FIXED | PERCENT | PER_QTY | PER_KG
     basis: Mapped[str] = mapped_column(String(20), default="FIXED")
-    amount_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    amount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     percent: Mapped[float] = mapped_column(Float, default=0.0)
     effective_from: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     effective_to: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -36,7 +36,7 @@ class Charge(Base):
     settlement_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     charge_type: Mapped[str] = mapped_column(String(40))
     basis: Mapped[str] = mapped_column(String(20), default="FIXED")
-    amount_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    amount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     rule_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     rule_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reason: Mapped[str] = mapped_column(String(255), default="")

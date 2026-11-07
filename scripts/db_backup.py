@@ -8,7 +8,7 @@ Usage:
     python3 scripts/db_backup.py [--keep N] [--dir DIR]
 
 Output: $BACKUP_DIR/keyway-YYYYmmdd-HHMMSS.db (+ .meta sidecar with sha256)
-Default dir: /home/z/my-project/backups  (override with --dir or BACKUP_DIR)
+Default dir: <project>/backups  (override with --dir or BACKUP_DIR)
 
 Cron example (real deployment, adjust paths):
     15 * * * * cd /srv/keyway && python3 scripts/db_backup.py --keep 48 >> /var/log/keyway-backup.log 2>&1
@@ -26,15 +26,20 @@ DEFAULT_DIR = ROOT / "backups"
 
 def resolve_db_path() -> Path:
     """Mirror backend/app/core/config.py: .env DATABASE_URL wins over default."""
+    import os
+    _u = os.environ.get("KEYWAY_DATABASE_URL", "")
+    if _u.startswith("sqlite:///"):
+        _p = Path(_u.removeprefix("sqlite:///"))
+        return _p if _p.is_absolute() else ROOT / "backend" / _p
     env = ROOT / "backend" / ".env"
     if env.exists():
         for line in env.read_text().splitlines():
             line = line.strip()
-            if line.startswith("DATABASE_URL="):
+            if line.startswith(("KEYWAY_DATABASE_URL=", "DATABASE_URL=")):
                 url = line.split("=", 1)[1].strip().strip('"').strip("'")
                 if url.startswith("sqlite:///"):
                     p = Path(url.removeprefix("sqlite:///"))
-                    return p if p.is_absolute() else ROOT / p
+                    return p if p.is_absolute() else ROOT / "backend" / p
                 raise SystemExit(f"[backup] non-sqlite DATABASE_URL not supported here: {url}")
     return DEFAULT_DB
 
@@ -80,7 +85,7 @@ def main() -> None:
         integrity = chk.execute("PRAGMA integrity_check").fetchone()[0]
         tables = {r[0] for r in chk.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         counts = {t: chk.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
-                  for t in {"orders", "journal_entries", "warehouse"} & tables}
+                  for t in {"orders", "journal_entries", "warehouses"} & tables}
     finally:
         chk.close()
     # WAL sidecars belong to the live database, never to a closed snapshot

@@ -75,6 +75,11 @@ class StatusIn(BaseModel):
     status: str
 
 
+class AttachIn(BaseModel):
+    vendor_id: int
+    contact_id: int | None = None
+
+
 @router.get("")
 def list_conversations(user: User = Depends(require_staff), db: Session = Depends(get_db),
                        status: str = "", vendor_id: int = 0, q: str = "", unassigned: bool = False):
@@ -130,6 +135,10 @@ def get_conversation(conversation_id: int, user: User = Depends(require_staff), 
 
 @router.post("/{conversation_id}/send")
 def send_message(conversation_id: int, body: SendIn, user: User = Depends(require_perm("conversations.manage")), db: Session = Depends(get_db)):
+    if not body.text.strip():
+        raise HTTPException(400, "Message text is required")
+    if len(body.text) > 4000:
+        raise HTTPException(400, "Message is too long (max 4000 characters)")
     msg = send_outbound_text(db, conversation_id, body.text)
     if not msg:
         raise HTTPException(404, "Conversation not found")
@@ -144,6 +153,10 @@ def assign(conversation_id: int, body: AssignIn, user: User = Depends(require_pe
     conv = db.get(Conversation, conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
+    if body.user_id is not None:
+        assignee = db.get(User, body.user_id)
+        if not assignee or not assignee.is_active or assignee.is_vendor:
+            raise HTTPException(400, "Assignee must be an active staff user")
     conv.assigned_user_id = body.user_id
     if body.user_id and conv.status in ("NEW", "OPEN"):
         conv.status = "PROCESSING"
@@ -164,27 +177,41 @@ def set_status(conversation_id: int, body: StatusIn, user: User = Depends(requir
 
 
 @router.post("/{conversation_id}/attach-vendor")
-def attach_vendor(conversation_id: int, body: dict, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
+def attach_vendor(conversation_id: int, body: AttachIn, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
     """Staff-assisted identification: assign an unknown sender to a vendor after verification."""
     conv = db.get(Conversation, conversation_id)
     if not conv:
         raise HTTPException(404, "Conversation not found")
-    vendor_id = body.get("vendor_id")
-    contact_id = body.get("contact_id")
-    v = db.get(Vendor, vendor_id) if vendor_id else None
+    v = db.get(Vendor, body.vendor_id)
     if not v:
-        raise HTTPException(400, "vendor_id required")
+        raise HTTPException(400, "Vendor not found")
+    contact = None
+    if body.contact_id:
+        contact = db.get(VendorContact, body.contact_id)
+        if not contact or contact.vendor_id != v.id:
+            raise HTTPException(400, "That contact does not belong to this vendor")
+    else:
+        # Make the identification durable: register the sender's number as a verified contact,
+        # otherwise every later message from them would be unrecognised again.
+        phone = conv.contact_phone
+        existing = db.query(VendorContact).filter(VendorContact.phone == phone).first()
+        if existing and existing.vendor_id != v.id:
+            raise HTTPException(400, "This number is already registered to a different vendor")
+        contact = existing
+        if not contact and phone:
+            contact = VendorContact(vendor_id=v.id, name=conv.contact_name or "WhatsApp sender", phone=phone,
+                                    is_whatsapp=True, wa_verified=True)
+            db.add(contact)
     conv.vendor_id = v.id
     match = VendorIdentityMatch(conversation_id=conv.id, phone=conv.contact_phone,
                                 matched_vendor_id=v.id, method="STAFF_ASSISTED",
                                 confidence=1.0, status="MATCHED_MANUAL", decided_by_user_id=user.id)
     db.add(match)
-    if contact_id:
-        c = db.get(VendorContact, contact_id)
-        if c:
-            c.wa_verified = True
-            c.verification_method = "STAFF_ASSISTED"
-            c.verified_at = utcnow()
+    if contact:
+        contact.is_whatsapp = True
+        contact.wa_verified = True
+        contact.verification_method = "STAFF_ASSISTED"
+        contact.verified_at = utcnow()
     audit(db, user, "identify", "conversation", conv.id, f"Attached sender {conv.contact_phone} to vendor {v.name}")
     db.commit()
     return serialize(conv)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.core.db import get_db
+from app.core.db import get_db, utcnow
 from app.core.deps import require_staff, require_perm, get_current_user
 from app.core.serialize import serialize, serialize_list
 from app.core.audit import audit
@@ -13,6 +13,7 @@ from app.modules.orders_models import Order
 from app.modules.cod_models import CODCollection
 from app.modules.charges_models import Charge
 from app.modules.settlements_models import Settlement
+from app.core.csvsafe import csv_safe  # noqa: F401
 from sqlalchemy import func, distinct
 
 router = APIRouter(prefix="/api/vendors", tags=["vendors"])
@@ -29,6 +30,33 @@ class VendorIn(BaseModel):
     auto_confirm_orders: bool = False
     settlement_frequency: str = "WEEKLY"
     pricing_notes: str = ""
+
+
+class VendorPatch(BaseModel):
+    name: str | None = None
+    business_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    city: str | None = None
+    state: str | None = None
+    status: str | None = None
+    auto_confirm_orders: bool | None = None
+    settlement_frequency: str | None = None
+    pricing_notes: str | None = None
+
+
+class ContactPatch(BaseModel):
+    name: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    is_primary: bool | None = None
+    is_whatsapp: bool | None = None
+    wa_verified: bool | None = None
+    verification_method: str | None = None
+
+
+VENDOR_STATUSES = ("ACTIVE", "SUSPENDED", "PENDING", "INACTIVE")
+FREQUENCIES = ("DAILY", "WEEKLY", "BIWEEKLY", "MONTHLY")
 
 
 class ContactIn(BaseModel):
@@ -68,7 +96,7 @@ def list_vendors(user: User = Depends(require_staff), db: Session = Depends(get_
     prod_counts = dict(db.query(Product.vendor_id, func.count(Product.id)).filter(
         Product.vendor_id.in_(vendor_ids)).group_by(Product.vendor_id).all()) if vendor_ids else {}
     order_counts = dict(db.query(Order.vendor_id, func.count(Order.id)).filter(
-        Order.vendor_id.in_(vendor_ids)).group_by(Order.vendor_id).all()) if vendor_ids else []
+        Order.vendor_id.in_(vendor_ids)).group_by(Order.vendor_id).all()) if vendor_ids else {}
     primary_by_vendor = {}
     for c in contacts:
         if c.is_primary or c.vendor_id not in primary_by_vendor:
@@ -84,6 +112,12 @@ def list_vendors(user: User = Depends(require_staff), db: Session = Depends(get_
 
 @router.post("")
 def create_vendor(body: VendorIn, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "Vendor name is required")
+    if body.status not in VENDOR_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(VENDOR_STATUSES)}")
+    if body.settlement_frequency not in FREQUENCIES:
+        raise HTTPException(400, f"settlement_frequency must be one of {', '.join(FREQUENCIES)}")
     v = Vendor(code="PENDING", **body.model_dump())
     db.add(v)
     db.flush()
@@ -104,7 +138,7 @@ def get_vendor(vendor_id: int, user: User = Depends(require_staff), db: Session 
     order_stats = db.query(Order.status, func.count(Order.id)).filter(Order.vendor_id == vendor_id).group_by(Order.status).all()
     collected = db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0)).filter(
         CODCollection.order_id.in_(db.query(Order.id).filter(Order.vendor_id == vendor_id)),
-        CODCollection.status == "VERIFIED").scalar()
+        CODCollection.verified_at.isnot(None)).scalar()
     charges = db.query(func.coalesce(func.sum(Charge.amount_kobo), 0)).filter(
         Charge.vendor_id == vendor_id, Charge.status == "APPLIED").scalar()
     settled = db.query(func.coalesce(func.sum(Settlement.net_kobo), 0)).filter(
@@ -113,7 +147,7 @@ def get_vendor(vendor_id: int, user: User = Depends(require_staff), db: Session 
     from app.modules.ledger_models import JournalLine, JournalEntry
     ledger_payable = (db.query(func.coalesce(func.sum(JournalLine.credit_kobo - JournalLine.debit_kobo), 0))
                       .select_from(JournalLine).join(JournalEntry, JournalEntry.id == JournalLine.entry_id)
-                      .filter(JournalLine.vendor_id == vendor_id, JournalEntry.status == "POSTED",
+                      .filter(JournalLine.vendor_id == vendor_id, JournalEntry.status.in_(("POSTED", "REVERSED")),
                               JournalEntry.source_type.in_(["COD_COLLECTION", "CHARGE_RECOGNITION", "SETTLEMENT_PAYOUT"]))
                       .scalar() or 0)
     payable = max(0, ledger_payable)
@@ -128,12 +162,20 @@ def get_vendor(vendor_id: int, user: User = Depends(require_staff), db: Session 
 
 
 @router.patch("/{vendor_id}")
-def update_vendor(vendor_id: int, body: VendorIn, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
+def update_vendor(vendor_id: int, body: VendorPatch, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
     v = db.get(Vendor, vendor_id)
     if not v:
         raise HTTPException(404, "Vendor not found")
-    for k, val in body.model_dump(exclude_unset=True).items():
-        setattr(v, k, val)
+    data = body.model_dump(exclude_unset=True)
+    if data.get("status") is not None and data["status"] not in VENDOR_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(VENDOR_STATUSES)}")
+    if data.get("settlement_frequency") is not None and data["settlement_frequency"] not in FREQUENCIES:
+        raise HTTPException(400, f"settlement_frequency must be one of {', '.join(FREQUENCIES)}")
+    if "name" in data and not (data["name"] or "").strip():
+        raise HTTPException(400, "Vendor name cannot be empty")
+    for k, val in data.items():
+        if val is not None:
+            setattr(v, k, val)
     db.commit()
     audit(db, user, "update", "vendor", v.id, f"Updated vendor {v.name}")
     db.commit()
@@ -166,15 +208,28 @@ def add_contact(vendor_id: int, body: ContactIn, user: User = Depends(require_pe
 
 
 @router.patch("/contacts/{contact_id}")
-def update_contact(contact_id: int, body: ContactIn, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
+def update_contact(contact_id: int, body: ContactPatch, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
     c = db.get(VendorContact, contact_id)
     if not c:
         raise HTTPException(404, "Contact not found")
-    data = body.model_dump(exclude_unset=True)
+    data = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
     if "phone" in data:
         data["phone"] = normalize_phone(data["phone"])
+        if len(data["phone"]) < 10:
+            raise HTTPException(400, "Valid phone number required")
+        clash = db.query(VendorContact).filter(VendorContact.phone == data["phone"],
+                                               VendorContact.id != c.id).first()
+        if clash:
+            raise HTTPException(400, "This phone number is already registered to another vendor contact")
+    if data.get("is_primary"):
+        for other in db.query(VendorContact).filter(VendorContact.vendor_id == c.vendor_id,
+                                                    VendorContact.id != c.id).all():
+            other.is_primary = False
+    if data.get("wa_verified") and not c.wa_verified:
+        c.verified_at = utcnow()
     for k, val in data.items():
         setattr(c, k, val)
+    audit(db, user, "update", "vendor_contact", c.id, f"Updated contact {c.name} ({c.phone})")
     db.commit()
     return serialize(c)
 
@@ -184,6 +239,7 @@ def delete_contact(contact_id: int, user: User = Depends(require_perm("vendors.m
     c = db.get(VendorContact, contact_id)
     if not c:
         raise HTTPException(404, "Contact not found")
+    audit(db, user, "delete", "vendor_contact", c.id, f"Removed contact {c.name} ({c.phone})")
     db.delete(c)
     db.commit()
     return {"ok": True}
@@ -191,6 +247,8 @@ def delete_contact(contact_id: int, user: User = Depends(require_perm("vendors.m
 
 @router.post("/{vendor_id}/agreements")
 def add_agreement(vendor_id: int, body: AgreementIn, user: User = Depends(require_perm("vendors.manage")), db: Session = Depends(get_db)):
+    if not db.get(Vendor, vendor_id):
+        raise HTTPException(404, "Vendor not found")
     a = VendorAgreement(vendor_id=vendor_id, **body.model_dump())
     db.add(a)
     db.commit()

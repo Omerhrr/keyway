@@ -6,6 +6,7 @@ application would have produced.
 """
 import json
 from datetime import timedelta
+from app.core.config import settings
 from app.core.db import utcnow
 from app.core.security import hash_password
 from app.core.ids import next_ref
@@ -39,7 +40,7 @@ PERMISSIONS = [
     ("confirmations.manage", "confirmations"),
     ("conversations.manage", "conversations"), ("conversations.view", "conversations"),
     ("whatsapp.manage", "whatsapp"),
-    ("dispatch.manage", "dispatch"),
+    ("dispatch.view", "dispatch"), ("dispatch.manage", "dispatch"),
     ("cod.manage", "cod"),
     ("charges.manage", "charges"),
     ("settlements.manage", "settlements"), ("settlements.approve", "settlements"),
@@ -54,21 +55,21 @@ ROLES = {
     "Administrator": "*",
     "Operations Manager": ["dashboard.view", "vendors.manage", "vendors.view", "catalog.manage", "catalog.view",
                            "inventory.view", "orders.manage", "orders.view", "confirmations.manage",
-                           "conversations.manage", "conversations.view", "whatsapp.manage", "dispatch.manage",
-                           "reports.view", "audit.view"],
+                           "conversations.manage", "conversations.view", "whatsapp.manage", "dispatch.view",
+                           "dispatch.manage", "reports.view", "audit.view"],
     "Warehouse Manager": ["dashboard.view", "catalog.view", "inventory.manage", "inventory.view",
                           "orders.view", "reports.view"],
     "Warehouse Staff": ["catalog.view", "inventory.manage", "inventory.view", "orders.view"],
     "Order Processing Staff": ["dashboard.view", "catalog.view", "inventory.view", "orders.manage", "orders.view",
                                "confirmations.manage", "conversations.manage", "conversations.view", "reports.view"],
     "Customer Confirmation Agent": ["dashboard.view", "orders.view", "confirmations.manage"],
-    "Dispatcher": ["dashboard.view", "orders.view", "dispatch.manage"],
+    "Dispatcher": ["dashboard.view", "orders.view", "dispatch.view", "dispatch.manage"],
     "Rider": ["dashboard.view"],
     "Finance Manager": ["dashboard.view", "cod.manage", "charges.manage", "settlements.manage",
                         "settlements.approve", "finance.manage", "reports.view", "audit.view"],
     "Accountant": ["dashboard.view", "cod.manage", "settlements.manage", "finance.manage", "reports.view"],
     "Auditor": ["dashboard.view", "vendors.view", "catalog.view", "inventory.view", "orders.view",
-                "conversations.view", "reports.view", "audit.view", "finance.manage"],
+                "conversations.view", "dispatch.view", "reports.view", "audit.view", "finance.manage"],
     "Read Only Staff": ["dashboard.view", "vendors.view", "catalog.view", "inventory.view", "orders.view",
                         "conversations.view", "dispatch.view", "reports.view", "audit.view"],
     "Vendor": [],
@@ -238,9 +239,59 @@ def seed_notification_rules(db):
     return created
 
 
+def _bootstrap_production(db):
+    """Production first boot: reference data + ONE administrator, no demo data.
+
+    Never creates demo users (known password), demo vendors, stock or opening balances.
+    The admin comes from KEYWAY_BOOTSTRAP_ADMIN_EMAIL / _PASSWORD and should change the
+    password after first login.
+    """
+    email = (settings.BOOTSTRAP_ADMIN_EMAIL or "").strip().lower()
+    password = settings.BOOTSTRAP_ADMIN_PASSWORD or ""
+    if not email or len(password) < 12:
+        raise RuntimeError(
+            "Empty production database: set KEYWAY_BOOTSTRAP_ADMIN_EMAIL and "
+            "KEYWAY_BOOTSTRAP_ADMIN_PASSWORD (min 12 chars) in backend/.env for the first start.")
+    now = utcnow()
+    perms = {}
+    for codename, module in PERMISSIONS:
+        p = Permission(codename=codename, module=module, description=codename)
+        db.add(p)
+        db.flush()
+        perms[codename] = p
+    roles = {}
+    for name, allowed in ROLES.items():
+        r = Role(name=name, description=f"{name} role")
+        db.add(r)
+        db.flush()
+        roles[name] = r
+        for codename in (perms if allowed == "*" else allowed):
+            if codename in perms:
+                db.add(RolePermission(role_id=r.id, permission_id=perms[codename].id))
+    db.flush()
+    db.add(User(email=email, password_hash=hash_password(password),
+                full_name=settings.BOOTSTRAP_ADMIN_NAME or "Administrator", phone="",
+                role_id=roles["Administrator"].id, department="Management",
+                job_title="Administrator", is_superuser=True))
+    for code, name, typ, subtype, is_cash in CHART:
+        db.add(Account(code=code, name=name, type=typ, subtype=subtype, is_cash=is_cash))
+    db.add(Warehouse(code="WH-MAIN", name="Main Warehouse", is_default=True))
+    db.add(FinancialPeriod(name=now.strftime("%Y-%m"), start_date=now.replace(day=1),
+                           end_date=now, status="OPEN"))
+    for name, body in TEMPLATES:
+        db.add(MessageTemplate(name=name, category="UTILITY", body=body,
+                               variables=[] if "{{1}}" not in body else ["1"]))
+    db.add(WhatsAppAccount(display_name="Keyway Logistics", mode="SIMULATOR", status="DISCONNECTED"))
+    db.commit()
+    print(f"[bootstrap] production reference data created; administrator {email} ready.")
+
+
 def seed_if_empty(db):
     if db.query(User).count() > 0:
         return False
+    if settings.is_production:
+        _bootstrap_production(db)
+        return True
     print("[seed] empty database detected - seeding rich demo data...")
     _seed(db)
     print("[seed] done.")

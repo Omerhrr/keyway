@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 from app.core.db import get_db, utcnow
-from app.core.deps import require_staff, get_current_user
+from app.core.deps import require_perm, require_any_perm, get_user_permissions
+from app.core.csvsafe import csv_safe
+import re
 from app.modules.identity_models import User
 from app.modules.orders_models import (Order, OrderItem, OrderDraft, CustomerConfirmation,
                                         Customer)
@@ -19,9 +21,26 @@ from app.modules.ledger_models import Expense
 
 router = APIRouter(prefix="/api", tags=["reports"])
 
+LIVE = ("POSTED", "REVERSED")   # reversed originals keep their lines; the reversal mirrors them
+require_dashboard = require_perm("dashboard.view")
+require_reports = require_perm("reports.view")
+require_finance_export = require_any_perm("finance.manage", "audit.view")
+_NUM = re.compile(r"-?\d+(\.\d+)?")
+
+
+def _avg_cycle_hours(db, vendor_id=None):
+    """Average created -> delivered time in HOURS, computed in Python (portable across
+    SQLite/Postgres; the old julianday() query was SQLite-only and returned days)."""
+    q = db.query(Order.created_at, Order.delivered_at).filter(
+        Order.status == "DELIVERED", Order.delivered_at.isnot(None), Order.created_at.isnot(None))
+    if vendor_id is not None:
+        q = q.filter(Order.vendor_id == vendor_id)
+    secs = [(d - c).total_seconds() for c, d in q.all() if d >= c]
+    return round(sum(secs) / len(secs) / 3600, 1) if secs else None
+
 
 @router.get("/dashboard")
-def dashboard(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def dashboard(user: User = Depends(require_dashboard), db: Session = Depends(get_db)):
     today = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
     def count(model, *filters):
@@ -62,13 +81,13 @@ def dashboard(user: User = Depends(require_staff), db: Session = Depends(get_db)
     if pay_acc:
         credits = (db.query(func.coalesce(func.sum(JL.credit_kobo), 0))
                    .select_from(JL).join(JE, JE.id == JL.entry_id)
-                   .filter(JL.account_id == pay_acc.id, JE.status == "POSTED").scalar() or 0)
+                   .filter(JL.account_id == pay_acc.id, JE.status.in_(LIVE)).scalar() or 0)
         debits = (db.query(func.coalesce(func.sum(JL.debit_kobo), 0))
                   .select_from(JL).join(JE, JE.id == JL.entry_id)
-                  .filter(JL.account_id == pay_acc.id, JE.status == "POSTED").scalar() or 0)
+                  .filter(JL.account_id == pay_acc.id, JE.status.in_(LIVE)).scalar() or 0)
         vendor_payables = max(0, credits - debits)
     verified = (db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0))
-                .filter(CODCollection.status == "VERIFIED").scalar() or 0)
+                .filter(CODCollection.verified_at.isnot(None)).scalar() or 0)
     from app.modules.settlements_models import Settlement as S
     charges_total = (db.query(func.coalesce(func.sum(Charge.amount_kobo), 0))
                      .filter(Charge.status == "APPLIED").scalar() or 0)
@@ -80,9 +99,13 @@ def dashboard(user: User = Depends(require_staff), db: Session = Depends(get_db)
     if rev_acc:
         revenue = (db.query(func.coalesce(func.sum(JL.credit_kobo - JL.debit_kobo), 0))
                    .select_from(JL).join(JE, JE.id == JL.entry_id)
-                   .filter(JL.account_id == rev_acc.id, JE.status == "POSTED").scalar() or 0)
+                   .filter(JL.account_id == rev_acc.id, JE.status.in_(LIVE)).scalar() or 0)
 
     orders_by_status = dict(db.query(Order.status, func.count(Order.id)).group_by(Order.status).all())
+    money_ok = user.is_superuser or bool(get_user_permissions(db, user) &
+                                         {"finance.manage", "reports.view", "audit.view", "cod.manage"})
+    if not money_ok:
+        cash_today = vendor_payables = revenue = value = None
     return {
         "orders_today": orders_today,
         "awaiting_processing": awaiting_processing,
@@ -106,13 +129,13 @@ def dashboard(user: User = Depends(require_staff), db: Session = Depends(get_db)
 
 
 @router.get("/reports/orders-by-status")
-def orders_by_status(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def orders_by_status(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     return [{"status": s, "count": c} for s, c in
             db.query(Order.status, func.count(Order.id)).group_by(Order.status).all()]
 
 
 @router.get("/reports/revenue-14d")
-def revenue_14d(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def revenue_14d(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=13)
     rows = (db.query(CODCollection.collected_at, CODCollection.collected_kobo)
             .filter(CODCollection.collected_at >= start, CODCollection.status != "UNVERIFIED").all())
@@ -129,7 +152,7 @@ def revenue_14d(user: User = Depends(require_staff), db: Session = Depends(get_d
 
 
 @router.get("/reports/delivery-performance")
-def delivery_performance(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def delivery_performance(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     total = db.query(func.count(Delivery.id)).scalar() or 0
     delivered = db.query(func.count(Delivery.id)).filter(Delivery.status == "DELIVERED").scalar() or 0
     failed = db.query(func.count(Delivery.id)).filter(Delivery.status == "FAILED").scalar() or 0
@@ -144,7 +167,7 @@ def delivery_performance(user: User = Depends(require_staff), db: Session = Depe
 
 
 @router.get("/reports/whatsapp-stats")
-def whatsapp_stats(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def whatsapp_stats(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     total_in = db.query(func.count(Message.id)).filter(Message.direction == "IN").scalar() or 0
     by_intent = dict(db.query(Message.intent, func.count(Message.id))
                      .filter(Message.direction == "IN").group_by(Message.intent).all())
@@ -167,7 +190,7 @@ def _ledger_balance(db, *, subtype: str | None = None, vendor_id: int | None = N
     from app.modules.ledger_models import JournalLine as JL, JournalEntry as JE, Account as Acc
     q = (db.query(func.coalesce(func.sum(JL.credit_kobo - JL.debit_kobo), 0))
          .select_from(JL).join(JE, JE.id == JL.entry_id)
-         .filter(JE.status == "POSTED"))
+         .filter(JE.status.in_(LIVE)))
     if subtype:
         q = q.filter(JL.account_id == Acc.id, Acc.subtype == subtype)
     if vendor_id is not None:
@@ -180,7 +203,7 @@ def _ledger_balance(db, *, subtype: str | None = None, vendor_id: int | None = N
 
 
 @router.get("/reports/vendor-performance")
-def vendor_performance(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def vendor_performance(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     """Per-vendor operating scorecard: volume, delivery quality, money flows."""
     from app.modules.vendors_models import Vendor
     vendors = db.query(Vendor).order_by(Vendor.name).all()
@@ -190,31 +213,29 @@ def vendor_performance(user: User = Depends(require_staff), db: Session = Depend
         delivered = db.query(func.count(Order.id)).filter(
             Order.vendor_id == v.id, Order.status == "DELIVERED").scalar() or 0
         failed = db.query(func.count(Order.id)).filter(
-            Order.vendor_id == v.id, Order.status.in_(["DELIVERY_FAILED", "RETURNED"])).scalar() or 0
+            Order.vendor_id == v.id, Order.status.in_(["DELIVERY_FAILED", "RETURNED_TO_WAREHOUSE"])).scalar() or 0
         cod = (db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0))
                .join(Order, Order.id == CODCollection.order_id)
-               .filter(Order.vendor_id == v.id, CODCollection.status == "VERIFIED").scalar() or 0)
+               .filter(Order.vendor_id == v.id, CODCollection.verified_at.isnot(None)).scalar() or 0)
         charges = (db.query(func.coalesce(func.sum(Charge.amount_kobo), 0))
                    .filter(Charge.vendor_id == v.id, Charge.status == "APPLIED").scalar() or 0)
         net = cod - charges
         outstanding = _ledger_balance(db, vendor_id=v.id)
         # average cycle time (hours) created -> delivered
-        cycle = (db.query(func.avg(func.julianday(Order.delivered_at) - func.julianday(Order.created_at)))
-                 .filter(Order.vendor_id == v.id, Order.status == "DELIVERED",
-                         Order.delivered_at.isnot(None)).scalar())
+        cycle = _avg_cycle_hours(db, v.id)
         out.append({
             "vendor_id": v.id, "vendor": v.name, "code": v.code, "status": v.status,
             "orders": total, "delivered": delivered, "failed_or_returned": failed,
             "delivery_rate": round(delivered / total * 100, 1) if total else 0,
             "cod_verified_kobo": cod, "charges_kobo": charges, "net_kobo": net,
             "outstanding_payable_kobo": outstanding,
-            "avg_cycle_hours": round(cycle, 1) if cycle else None,
+            "avg_cycle_hours": cycle,
         })
     return out
 
 
 @router.get("/reports/staff-performance")
-def staff_performance(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def staff_performance(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     """Per-staff activity from real attribution fields on orders/COD/settlements."""
     from app.modules.identity_models import User as U
     from app.modules.ledger_models import JournalEntry as JE
@@ -230,11 +251,11 @@ def staff_performance(user: User = Depends(require_staff), db: Session = Depends
             CODCollection.verified_by_user_id == u.id).scalar() or 0
         cod_verified_amt = (db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0))
                             .filter(CODCollection.verified_by_user_id == u.id,
-                                    CODCollection.status == "VERIFIED").scalar() or 0)
+                                    CODCollection.verified_at.isnot(None)).scalar() or 0)
         settlements_approved = db.query(func.count(S.id)).filter(
             S.approved_by_user_id == u.id).scalar() or 0
         entries_posted = db.query(func.count(JE.id)).filter(
-            JE.posted_by_user_id == u.id, JE.status == "POSTED").scalar() or 0
+            JE.posted_by_user_id == u.id, JE.status.in_(LIVE)).scalar() or 0
         if not (orders_created or cod_verified_n or settlements_approved or entries_posted):
             continue
         out.append({"user_id": u.id, "name": u.full_name or u.email,
@@ -248,7 +269,7 @@ def staff_performance(user: User = Depends(require_staff), db: Session = Depends
 
 
 @router.get("/reports/operational")
-def operational(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def operational(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     """14-day operational trend + flow efficiency + geography."""
     start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=13)
     created = dict(db.query(func.date(Order.created_at), func.count(Order.id))
@@ -263,9 +284,8 @@ def operational(user: User = Depends(require_staff), db: Session = Depends(get_d
     total = db.query(func.count(Order.id)).scalar() or 0
     delivered_n = db.query(func.count(Order.id)).filter(Order.status == "DELIVERED").scalar() or 0
     failed_n = db.query(func.count(Order.id)).filter(
-        Order.status.in_(["DELIVERY_FAILED", "RETURNED"])).scalar() or 0
-    cycle = (db.query(func.avg(func.julianday(Order.delivered_at) - func.julianday(Order.created_at)))
-             .filter(Order.status == "DELIVERED", Order.delivered_at.isnot(None)).scalar())
+        Order.status.in_(["DELIVERY_FAILED", "RETURNED_TO_WAREHOUSE"])).scalar() or 0
+    cycle = _avg_cycle_hours(db)
     from app.modules.orders_models import CustomerAddress
     cities = (db.query(CustomerAddress.city, func.count(Order.id))
               .select_from(Order)
@@ -288,7 +308,7 @@ def operational(user: User = Depends(require_staff), db: Session = Depends(get_d
         "daily": days,
         "total_orders": total, "delivered": delivered_n, "failed_or_returned": failed_n,
         "delivery_rate": round(delivered_n / total * 100, 1) if total else 0,
-        "avg_cycle_hours": round(cycle, 1) if cycle else None,
+        "avg_cycle_hours": cycle,
         "top_cities": [{"city": c or "Unknown", "orders": n} for c, n in cities],
         "drafts": drafts, "drafts_converted": converted,
         "wa_to_draft_rate": round(drafts / wa_in * 100, 1) if wa_in else 0,
@@ -296,16 +316,17 @@ def operational(user: User = Depends(require_staff), db: Session = Depends(get_d
 
 
 @router.get("/reports/financial")
-def financial(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def financial(user: User = Depends(require_reports), db: Session = Depends(get_db)):
     """Money view: COD funnel, charges, settlements, revenue and expenses."""
     from app.modules.ledger_models import JournalEntry as JE, JournalLine as JL, Account as Acc
     from app.modules.settlements_models import Settlement as S
     cod_expected = (db.query(func.coalesce(func.sum(CODCollection.expected_kobo), 0)).scalar() or 0)
     cod_collected = (db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0)).scalar() or 0)
     cod_verified = (db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0))
-                    .filter(CODCollection.status == "VERIFIED").scalar() or 0)
+                    .filter(CODCollection.verified_at.isnot(None)).scalar() or 0)
     cod_pending = (db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0))
-                   .filter(CODCollection.status.in_(["PENDING_VERIFICATION", "DISCREPANCY", "UNVERIFIED"])).scalar() or 0)
+                   .filter(CODCollection.verified_at.is_(None),
+                           CODCollection.status.in_(["PENDING_VERIFICATION", "DISCREPANCY", "UNVERIFIED"])).scalar() or 0)
     discrepancy = (db.query(func.coalesce(func.sum(CODCollection.discrepancy_kobo), 0)).scalar() or 0)
     charges_by_type = dict(db.query(Charge.charge_type, func.coalesce(func.sum(Charge.amount_kobo), 0))
                            .filter(Charge.status == "APPLIED").group_by(Charge.charge_type).all())
@@ -316,13 +337,14 @@ def financial(user: User = Depends(require_staff), db: Session = Depends(get_db)
     start = (utcnow().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=29))
     rev_rows = (db.query(func.date(JE.entry_date), func.coalesce(func.sum(JL.credit_kobo - JL.debit_kobo), 0))
                 .select_from(JL).join(JE, JE.id == JL.entry_id).join(Acc, Acc.id == JL.account_id)
-                .filter(Acc.subtype == "LOGISTICS_REVENUE", JE.status == "POSTED", JE.entry_date >= start)
+                .filter(Acc.subtype == "LOGISTICS_REVENUE", JE.status.in_(LIVE), JE.entry_date >= start)
                 .group_by(func.date(JE.entry_date)).all())
     exp_rows = (db.query(func.date(JE.entry_date), func.coalesce(func.sum(JL.debit_kobo - JL.credit_kobo), 0))
                 .select_from(JL).join(JE, JE.id == JL.entry_id).join(Acc, Acc.id == JL.account_id)
-                .filter(Acc.subtype == "OPERATING_EXPENSE", JE.status == "POSTED", JE.entry_date >= start)
+                .filter(Acc.subtype == "OPERATING_EXPENSE", JE.status.in_(LIVE), JE.entry_date >= start)
                 .group_by(func.date(JE.entry_date)).all())
-    rev_by_day, exp_by_day = dict(rev_rows), dict(exp_rows)
+    rev_by_day = {str(k): v for k, v in rev_rows}
+    exp_by_day = {str(k): v for k, v in exp_rows}
     trend = []
     for i in range(30):
         d = (start + timedelta(days=i)).date().isoformat()
@@ -334,7 +356,7 @@ def financial(user: User = Depends(require_staff), db: Session = Depends(get_db)
     # cash balances: sum debit-credit of cash accounts
     cash = (db.query(func.coalesce(func.sum(JL.debit_kobo - JL.credit_kobo), 0))
             .select_from(JL).join(JE, JE.id == JL.entry_id).join(Acc, Acc.id == JL.account_id)
-            .filter(Acc.is_cash.is_(True), JE.status == "POSTED").scalar() or 0)
+            .filter(Acc.is_cash.is_(True), JE.status.in_(LIVE)).scalar() or 0)
     expenses_by_category = dict(db.query(Expense.category, func.coalesce(func.sum(Expense.amount_kobo), 0))
                                 .filter(Expense.status.in_(["APPROVED", "PAID"]))
                                 .group_by(Expense.category).all())
@@ -368,7 +390,7 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
     w = _csv.writer(buf)
     w.writerow(header)
     for r in rows:
-        w.writerow(r)
+        w.writerow([c if (not isinstance(c, str) or _NUM.fullmatch(c)) else csv_safe(c) for c in r])
     buf.seek(0)
     return Response(buf.getvalue(), media_type="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={quote(filename)}"})
@@ -376,13 +398,16 @@ def _csv_response(filename: str, header: list[str], rows: list[list]):
 
 @router.get("/reports/export/{dataset}")
 def export_dataset(dataset: str, vendor_id: int = 0,
-                   user: User = Depends(require_staff), db: Session = Depends(get_db)):
+                   user: User = Depends(require_reports), db: Session = Depends(get_db)):
     """Export operational/financial datasets as CSV.
 
     Datasets: orders, ledger, settlements, cod, vendors."""
     from app.modules.ledger_models import JournalEntry as JE, JournalLine as JL, Account as Acc
     from app.modules.vendors_models import Vendor
     dataset = dataset.lower()
+    if dataset in ("ledger", "settlements", "cod"):
+        if not (user.is_superuser or get_user_permissions(db, user) & {"finance.manage", "audit.view"}):
+            raise HTTPException(403, "Finance exports need the finance.manage or audit.view permission")
     if dataset == "orders":
         q = db.query(Order).order_by(Order.id.desc())
         if vendor_id:

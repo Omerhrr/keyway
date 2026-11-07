@@ -1,23 +1,28 @@
+# Public entrypoint. Replace :81 with your domain (e.g. app.example.com) and Caddy
+# will obtain a TLS certificate automatically.
+#
+# Everything goes to the Nuxt server, which proxies /api/* to FastAPI on loopback.
+# (The old "?XTransformPort=<n>" rule let any visitor reach ANY local port - the LLM
+#  service, the API directly, databases - and has been removed.)
 :81 {
-	@transform_port_query {
-		query XTransformPort=*
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
 	}
 
-	handle @transform_port_query {
-		reverse_proxy localhost:{query.XTransformPort} {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
+	request_body {
+		max_size 12MB
 	}
 
-	handle {
-		reverse_proxy localhost:3000 {
-			header_up Host {host}
-			header_up X-Forwarded-For {remote_host}
-			header_up X-Forwarded-Proto {scheme}
-			header_up X-Real-IP {remote_host}
-		}
+	reverse_proxy localhost:3000 {
+		header_up Host {host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Real-IP {remote_host}
 	}
 }

@@ -7,12 +7,32 @@ Rules enforced here (per PRD):
 """
 from app.core.db import utcnow
 from app.core.ids import next_ref
-from app.modules.ledger_models import JournalEntry, JournalLine
+from app.modules.ledger_models import Account, JournalEntry, JournalLine
+
+# A reversed entry keeps its original lines; the reversal entry carries the mirror
+# lines. Both must be counted together so the pair nets to zero in every report.
+LIVE_ENTRY_STATUSES = ("POSTED", "REVERSED")
 
 
 def post_journal(db, *, memo: str, source_type: str, source_id=None, lines: list[dict],
                  entry_date=None, posted_by=None, commit: bool = False) -> JournalEntry:
     """lines: [{account_id, debit_kobo, credit_kobo, vendor_id?, memo?}]"""
+    account_ids = set()
+    for l in lines:
+        d, c = int(l.get("debit_kobo") or 0), int(l.get("credit_kobo") or 0)
+        if d < 0 or c < 0:
+            raise ValueError("Journal amounts cannot be negative")
+        if d and c:
+            raise ValueError("A journal line cannot carry both a debit and a credit")
+        if not d and not c:
+            raise ValueError("Every journal line needs a debit or a credit amount")
+        if not l.get("account_id"):
+            raise ValueError("Every journal line needs an account")
+        account_ids.add(l["account_id"])
+    known = {a for (a,) in db.query(Account.id).filter(Account.id.in_(account_ids),
+                                                       Account.is_active.is_(True)).all()}
+    if known != account_ids:
+        raise ValueError(f"Unknown or inactive account id(s): {sorted(account_ids - known)}")
     total_d = sum(int(l.get("debit_kobo") or 0) for l in lines)
     total_c = sum(int(l.get("credit_kobo") or 0) for l in lines)
     if total_d == 0 and total_c == 0:
@@ -50,6 +70,10 @@ def post_journal(db, *, memo: str, source_type: str, source_id=None, lines: list
 def reverse_journal(db, entry: JournalEntry, reason: str, posted_by=None) -> JournalEntry:
     if entry.status == "REVERSED":
         raise ValueError("Entry already reversed")
+    if entry.status != "POSTED":
+        raise ValueError(f"Only posted entries can be reversed (this one is {entry.status})")
+    if entry.source_type == "REVERSAL" or entry.reversal_of_id:
+        raise ValueError("A reversal entry cannot itself be reversed - post a new correcting entry instead")
     rev = JournalEntry(
         entry_no="PENDING",
         entry_date=utcnow(),

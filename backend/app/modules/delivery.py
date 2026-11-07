@@ -30,6 +30,9 @@ DELIVERY_TRANSITIONS = {
 }
 
 
+DELIVERY_MODES = ("IN_HOUSE_RIDER", "LOCAL_3P", "INTERSTATE", "WAYBILL")
+
+
 class DispatchIn(BaseModel):
     order_id: int
     mode: str = "IN_HOUSE_RIDER"
@@ -107,6 +110,20 @@ def create_dispatch(body: DispatchIn, user: User = Depends(require_perm("dispatc
         raise HTTPException(404, "Order not found")
     if o.status not in ("READY_FOR_DISPATCH",):
         raise HTTPException(400, f"Order must be READY_FOR_DISPATCH first (currently {o.status})")
+    if body.mode not in DELIVERY_MODES:
+        raise HTTPException(400, f"mode must be one of {', '.join(DELIVERY_MODES)}")
+    if body.fee_kobo < 0:
+        raise HTTPException(400, "Delivery fee cannot be negative")
+    if body.rider_id:
+        rider = db.get(Rider, body.rider_id)
+        if not rider or rider.status != "ACTIVE":
+            raise HTTPException(400, "Rider not found or not active")
+    if body.carrier_id and not db.get(Carrier, body.carrier_id):
+        raise HTTPException(400, "Carrier not found")
+    if body.waybill_id and not db.get(Waybill, body.waybill_id):
+        raise HTTPException(400, "Waybill not found")
+    if body.zone_id and not db.get(DeliveryZone, body.zone_id):
+        raise HTTPException(400, "Delivery zone not found")
     zone = db.get(DeliveryZone, body.zone_id) if body.zone_id else None
     fee = body.fee_kobo or (zone.base_fee_kobo if zone else 0)
     d = Delivery(order_id=o.id, mode=body.mode, zone_id=zone.id if zone else None,
@@ -121,11 +138,13 @@ def create_dispatch(body: DispatchIn, user: User = Depends(require_perm("dispatc
     # Apply the delivery charge through the charge engine (recorded, never silent)
     from app.modules.charges import apply_charge
     charge_type = "LOCAL_DELIVERY" if body.mode in ("IN_HOUSE_RIDER", "LOCAL_3P") else "INTERSTATE_DISPATCH"
+    charge_note = ""
     try:
         apply_charge(db, vendor_id=o.vendor_id, order_id=o.id, charge_type=charge_type,
                      amount_kobo=fee, reason=f"Delivery fee for {o.reference}", actor=user, commit=False)
-    except Exception:
-        pass
+    except ValueError as ex:
+        # No fee and no pricing rule: dispatch continues but the gap is recorded, not hidden.
+        charge_note = f" | NO CHARGE APPLIED: {ex}"
     o.delivery_fee_kobo = fee
     if o.payment_method == "COD":
         o.cod_amount_kobo = o.items_total_kobo + fee
@@ -133,7 +152,7 @@ def create_dispatch(body: DispatchIn, user: User = Depends(require_perm("dispatc
     o.status = "DISPATCHED"
     d.dispatch_at = utcnow()
     add_event(db, o, "DISPATCH", from_status, "DISPATCHED", user,
-              f"Dispatch via {body.mode}, fee {fee / 100:.0f} NGN")
+              f"Dispatch via {body.mode}, fee {fee / 100:.0f} NGN{charge_note}")
     notify(db, event_type="ORDER_DISPATCHED", title=f"Order {o.reference} dispatched",
            vendor_id=o.vendor_id, entity_type="order", entity_id=o.id)
     audit(db, user, "dispatch", "order", o.id, f"Order {o.reference} dispatched via {body.mode}")
@@ -149,42 +168,47 @@ def update_delivery_status(delivery_id: int, body: DeliveryStatusIn, user: User 
     to = body.to_status
     if to not in DELIVERY_TRANSITIONS.get(d.status, []):
         raise HTTPException(400, f"Cannot move delivery from {d.status} to {to}")
-    d.status = to
     o = db.get(Order, d.order_id)
+    if o.status in ("CANCELLED", "DELIVERED", "RETURNED_TO_WAREHOUSE") and to != "RETURNED":
+        raise HTTPException(400, f"Order {o.reference} is {o.status}; its delivery can no longer change")
+    if to == "FAILED" and not body.failure_reason.strip():
+        raise HTTPException(400, "A failure reason is required")
+    prev = o.status
+    d.status = to
     if to == "DELIVERED":
         d.delivered_at = utcnow()
         d.proof_ref = body.proof_ref or d.proof_ref
         o.status = "DELIVERED"
         o.delivered_at = utcnow()
         consume_reservations(db, o.id, user)
-        add_event(db, o, "STATUS_CHANGE", "DISPATCHED", "DELIVERED", user, body.note or "Delivered")
+        add_event(db, o, "STATUS_CHANGE", prev, "DELIVERED", user, body.note or "Delivered")
         notify(db, event_type="ORDER_DELIVERED", title=f"Order {o.reference} delivered",
                vendor_id=o.vendor_id, entity_type="order", entity_id=o.id)
         # Auto-create pending COD collection record (actual amount recorded on confirmation)
-        if o.payment_method == "COD":
-            from app.modules.cod_models import CODCollection
-            exists = db.query(CODCollection).filter(CODCollection.order_id == o.id).first()
-            if not exists:
-                db.add(CODCollection(order_id=o.id, delivery_id=d.id, expected_kobo=o.cod_amount_kobo,
-                                     collected_kobo=0, method="CASH", status="PENDING_VERIFICATION",
-                                     rider_id=d.rider_id))
+        from app.modules.cod import ensure_cod_pending
+        ensure_cod_pending(db, o, delivery_id=d.id, rider_id=d.rider_id)
     elif to == "FAILED":
         d.failure_reason = body.failure_reason or "Unspecified"
         o.status = "DELIVERY_FAILED"
-        add_event(db, o, "STATUS_CHANGE", o.status, "DELIVERY_FAILED", user, d.failure_reason)
+        add_event(db, o, "STATUS_CHANGE", prev, "DELIVERY_FAILED", user, d.failure_reason)
         notify(db, event_type="DELIVERY_FAILED", title=f"Order {o.reference} delivery failed",
                body=d.failure_reason, vendor_id=o.vendor_id, entity_type="order", entity_id=o.id)
     elif to == "RETURNED":
         o.status = "RETURNED_TO_WAREHOUSE"
         from app.modules.inventory import restock_return
         restock_return(db, o.id, user)
-        add_event(db, o, "STATUS_CHANGE", o.status, "RETURNED_TO_WAREHOUSE", user, "Returned to warehouse")
+        add_event(db, o, "STATUS_CHANGE", prev, "RETURNED_TO_WAREHOUSE", user, "Returned to warehouse")
     elif to == "RETURNING":
         o.status = "RETURN_IN_TRANSIT"
-        add_event(db, o, "STATUS_CHANGE", o.status, "RETURN_IN_TRANSIT", user, body.note)
+        add_event(db, o, "STATUS_CHANGE", prev, "RETURN_IN_TRANSIT", user, body.note)
+    elif to == "PENDING_ASSIGNMENT":
+        # Retry after a failed attempt: the order is back out for delivery.
+        o.status = "DISPATCHED"
+        d.failure_reason = ""
+        add_event(db, o, "STATUS_CHANGE", prev, "DISPATCHED", user, body.note or "Re-attempt scheduled")
     else:
         o.status = "IN_TRANSIT" if to in ("DISPATCHED", "IN_TRANSIT", "OUT_FOR_DELIVERY") else o.status
-        add_event(db, o, "STATUS_CHANGE", "", to, user, body.note)
+        add_event(db, o, "STATUS_CHANGE", prev, o.status, user, body.note or f"Delivery -> {to}")
     db.commit()
     audit(db, user, "delivery_status", "delivery", d.id, f"Delivery -> {to}")
     db.commit()
@@ -200,6 +224,12 @@ def list_riders(user: User = Depends(require_staff), db: Session = Depends(get_d
 
 @router.post("/riders")
 def create_rider(body: RiderIn, user: User = Depends(require_perm("settings.manage")), db: Session = Depends(get_db)):
+    if not body.full_name.strip():
+        raise HTTPException(400, "Rider name is required")
+    if body.zone_id and not db.get(DeliveryZone, body.zone_id):
+        raise HTTPException(400, "Delivery zone not found")
+    if body.user_id and not db.get(User, body.user_id):
+        raise HTTPException(400, "Linked user not found")
     r = Rider(**body.model_dump())
     db.add(r)
     db.commit()
@@ -213,6 +243,8 @@ def list_carriers(user: User = Depends(require_staff), db: Session = Depends(get
 
 @router.post("/carriers")
 def create_carrier(body: CarrierIn, user: User = Depends(require_perm("settings.manage")), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "Carrier name is required")
     c = Carrier(**body.model_dump())
     db.add(c)
     db.commit()
@@ -226,6 +258,10 @@ def list_zones(user: User = Depends(require_staff), db: Session = Depends(get_db
 
 @router.post("/zones")
 def create_zone(body: ZoneIn, user: User = Depends(require_perm("settings.manage")), db: Session = Depends(get_db)):
+    if not body.name.strip():
+        raise HTTPException(400, "Zone name is required")
+    if body.base_fee_kobo < 0:
+        raise HTTPException(400, "Base fee cannot be negative")
     z = DeliveryZone(**body.model_dump())
     db.add(z)
     db.commit()
@@ -239,6 +275,10 @@ def list_waybills(user: User = Depends(require_staff), db: Session = Depends(get
 
 @router.post("/waybills")
 def create_waybill(body: WaybillIn, user: User = Depends(require_perm("dispatch.manage")), db: Session = Depends(get_db)):
+    if body.carrier_id and not db.get(Carrier, body.carrier_id):
+        raise HTTPException(400, "Carrier not found")
+    if body.total_parcels < 0:
+        raise HTTPException(400, "Parcel count cannot be negative")
     w = Waybill(waybill_no="PENDING", **body.model_dump())
     db.add(w)
     db.flush()

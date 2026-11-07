@@ -84,3 +84,6 @@ local-*
 /tests/
 backend/db/media/
 tool-results/
+
+# deployment template is safe to commit
+!deploy/production.env.example

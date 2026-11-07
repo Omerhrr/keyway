@@ -22,15 +22,20 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def resolve_db_path() -> Path:
+    import os
+    _u = os.environ.get("KEYWAY_DATABASE_URL", "")
+    if _u.startswith("sqlite:///"):
+        _p = Path(_u.removeprefix("sqlite:///"))
+        return _p if _p.is_absolute() else ROOT / "backend" / _p
     env = ROOT / "backend" / ".env"
     if env.exists():
         for line in env.read_text().splitlines():
             line = line.strip()
-            if line.startswith("DATABASE_URL="):
+            if line.startswith(("KEYWAY_DATABASE_URL=", "DATABASE_URL=")):
                 url = line.split("=", 1)[1].strip().strip('"').strip("'")
                 if url.startswith("sqlite:///"):
                     p = Path(url.removeprefix("sqlite:///"))
-                    return p if p.is_absolute() else ROOT / p
+                    return p if p.is_absolute() else ROOT / "backend" / p
                 raise SystemExit(f"[restore] non-sqlite DATABASE_URL not supported here: {url}")
     return ROOT / "backend" / "db" / "keyway.db"
 
@@ -40,7 +45,7 @@ def integrity(path: Path) -> tuple[str, int]:
     try:
         ok = con.execute("PRAGMA integrity_check").fetchone()[0]
         tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        core = ["orders", "journal_entries", "warehouse", "users"]
+        core = ["orders", "journal_entries", "warehouses", "users"]
         counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in core if t in tables}
         return ok, counts
     finally:

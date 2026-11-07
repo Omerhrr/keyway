@@ -19,6 +19,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db, utcnow
 from app.core.config import settings
+import logging
+
+log = logging.getLogger("keyway.whatsapp")
 from app.core.deps import require_staff, require_perm
 from app.core.serialize import serialize, serialize_list
 from app.core.audit import audit
@@ -42,7 +45,7 @@ MAX_MEDIA_BYTES = 10 * 1024 * 1024
 
 # Intents that produce order drafts
 DRAFT_INTENTS = {"NEW_ORDER"}
-MEDIA_DIR = Path(settings.DATABASE_URL.replace("sqlite:///", "")).parent / "media"
+MEDIA_DIR = settings.media_dir
 
 
 def normalize_phone(p: str) -> str:
@@ -88,13 +91,16 @@ def store_media(db: Session, msg: Message, msg_type: str, media_bytes: bytes, mi
 
 def match_vendor(db: Session, phone: str) -> tuple[Vendor | None, VendorContact | None, str]:
     """Identity recognition - priority 1: registered verified WhatsApp number."""
+    # An unverified contact is NOT an identity: matching it would let anyone who is merely
+    # listed (or mistyped) place orders in the vendor's name.
     contact = (db.query(VendorContact)
-               .filter(VendorContact.phone == phone, VendorContact.is_whatsapp.is_(True))
+               .filter(VendorContact.phone == phone, VendorContact.is_whatsapp.is_(True),
+                       VendorContact.wa_verified.is_(True))
                .first())
     if contact:
         vendor = db.get(Vendor, contact.vendor_id)
         if vendor:
-            return vendor, contact, ("PHONE_NUMBER" if contact.wa_verified else "PHONE_NUMBER")
+            return vendor, contact, "PHONE_NUMBER"
     return None, None, "NONE"
 
 
@@ -294,7 +300,8 @@ def ingest_message(db: Session, *, from_phone: str, wa_message_id: str | None, m
                 and analysis.get("confidence", 0) >= 0.75 and not dup):
             from app.modules.orders import create_order_from_draft
             try:
-                order = create_order_from_draft(db, draft, None)
+                with db.begin_nested():  # savepoint: a failed auto-create must leave no ghost order
+                    order = create_order_from_draft(db, draft, None)
                 db.commit()
                 send_outbound_text(db, conv.id, f"Order {order.reference} has been registered automatically. "
                                                 f"Thank you for your business!")
@@ -441,6 +448,8 @@ def webhook_verify(request: Request, db: Session = Depends(get_db)):
     params = request.query_params
     provided = params.get("hub.verify_token") or ""
     expected = creds["verify_token"] or ""
+    if settings.is_production and expected in ("", "keyway-verify"):
+        raise HTTPException(status_code=403, detail="Webhook verify token not configured for production")
     if params.get("hub.mode") == "subscribe" and expected \
             and hmac.compare_digest(provided, expected):
         return int(params.get("hub.challenge") or 0) if (params.get("hub.challenge") or "").isdigit() \
@@ -472,10 +481,15 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
                 media_bytes, mime = dl["bytes"], dl["mime"]
             except cloud.CloudAPIError as e:
                 results.append({"wa_message_id": m["wa_message_id"], "error": f"media download failed: {e}"})
-        res = ingest_message(db, from_phone=m["from_phone"], wa_message_id=m["wa_message_id"] or None,
-                             msg_type=m["msg_type"], text=m["text"], media_bytes=media_bytes,
-                             mime=mime, contact_name=m.get("profile_name") or "")
-        results.append(res)
+        try:
+            res = ingest_message(db, from_phone=m["from_phone"], wa_message_id=m["wa_message_id"] or None,
+                                 msg_type=m["msg_type"], text=m["text"], media_bytes=media_bytes,
+                                 mime=mime, contact_name=m.get("profile_name") or "")
+            results.append(res)
+        except Exception as e:  # one poisoned message must not make Meta retry the whole batch forever
+            db.rollback()
+            log.exception("WhatsApp message %s failed", m.get("wa_message_id"))
+            results.append({"wa_message_id": m.get("wa_message_id"), "error": type(e).__name__})
     for s in events["statuses"]:
         _apply_status(db, s)
     if not events["messages"]:

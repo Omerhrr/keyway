@@ -90,6 +90,23 @@ class DraftEditIn(BaseModel):
     review_notes: str | None = None
 
 
+PAYMENT_METHODS = ("COD", "PREPAID", "TRANSFER", "POS")
+ATTEMPT_OUTCOMES = ("CALL_ATTEMPTED", "NO_ANSWER", "INVALID_PHONE_NUMBER", "CUSTOMER_CONFIRMED",
+                    "CUSTOMER_REJECTED", "CUSTOMER_REQUESTED_RESCHEDULE", "ADDRESS_NEEDS_CORRECTION")
+ATTEMPT_ALLOWED_ORDER_STATUSES = ("CONFIRMED", "PENDING_CUSTOMER_CONFIRMATION", "PROCESSING")
+
+
+def normalize_phone(p: str) -> str:
+    digits = "".join(ch for ch in (p or "") if ch.isdigit())
+    if digits.startswith("234") and len(digits) >= 13:
+        digits = "0" + digits[3:]
+    return digits
+
+
+class AssignIn(BaseModel):
+    user_id: int | None = None
+
+
 class AttemptIn(BaseModel):
     outcome: str
     note: str = ""
@@ -116,7 +133,9 @@ def add_event(db, order, event_type, from_status="", to_status="", actor=None, n
 
 
 def upsert_customer(db, vendor_id: int, name: str, phone: str, alt_phone: str = "") -> Customer:
-    phone = (phone or "").strip()
+    phone = normalize_phone(phone) or (phone or "").strip()
+    if not phone:
+        raise HTTPException(400, "Customer phone number is required")
     c = db.query(Customer).filter(Customer.vendor_id == vendor_id, Customer.phone == phone).first()
     if not c:
         c = Customer(vendor_id=vendor_id, name=name or "Unknown", phone=phone, alt_phone=alt_phone or "")
@@ -140,7 +159,7 @@ def duplicate_check(db, vendor_id: int, customer_phone: str, product_id: int, qt
                     OrderItem.product_id == product_id,
                     OrderItem.qty == qty)
             .all())
-    phone = (customer_phone or "").strip()
+    phone = normalize_phone(customer_phone) or (customer_phone or "").strip()
     for o, item in rows:
         cust = db.get(Customer, o.customer_id)
         if cust and cust.phone == phone:
@@ -192,6 +211,13 @@ def create_order_from_draft(db, draft: OrderDraft, actor=None) -> Order:
     qty = int(x.get("quantity") or 0)
     if qty <= 0:
         raise HTTPException(400, "Quantity must be at least 1")
+    if variant_id:
+        _pv = db.get(ProductVariant, int(variant_id))
+        if not _pv or _pv.product_id != product.id:
+            raise HTTPException(400, "Draft variant does not belong to the matched product")
+    pay_method = x.get("payment_method") or "COD"
+    if pay_method not in PAYMENT_METHODS:
+        raise HTTPException(400, f"Unknown payment method {pay_method}")
 
     unit_price = int(x.get("unit_price_kobo") or 0)
     price_source = x.get("price_source", "EXTRACTED")
@@ -217,11 +243,11 @@ def create_order_from_draft(db, draft: OrderDraft, actor=None) -> Order:
 
     line_total = qty * unit_price
     delivery_fee = 0
-    cod_amount = line_total + delivery_fee if (x.get("payment_method", "COD") == "COD") else 0
+    cod_amount = line_total + delivery_fee if pay_method == "COD" else 0
 
     order = Order(reference="PENDING", vendor_id=draft.vendor_id, customer_id=customer.id,
                   warehouse_id=warehouse.id, status="CONFIRMED",
-                  payment_method=x.get("payment_method", "COD"),
+                  payment_method=pay_method,
                   source=draft.source or "WHATSAPP", source_message_id=draft.message_id,
                   draft_id=draft.id, delivery_state=x.get("state") or "", delivery_city=x.get("city") or "",
                   delivery_area=x.get("area") or "", delivery_street=x.get("street") or "",
@@ -233,7 +259,7 @@ def create_order_from_draft(db, draft: OrderDraft, actor=None) -> Order:
     db.flush()
     order.reference = next_ref(db, Order, "reference", "KW")
     db.add(OrderItem(order_id=order.id, product_id=product.id, variant_id=variant_id,
-                     name_snapshot=f"{product.name}" + (f" ({db.get(ProductVariant, variant_id).name})" if variant_id else ""),
+                     name_snapshot=f"{product.name}" + (f" ({_pv.name})" if variant_id else ""),
                      sku_snapshot=product.sku, qty=qty, unit_price_kobo=unit_price,
                      line_total_kobo=line_total, price_source=price_source))
     # Stock reservation (raises 400 when insufficient)
@@ -328,8 +354,12 @@ def edit_draft(draft_id: int, body: DraftEditIn, user: User = Depends(require_pe
     if data.get("customer_phone") is not None:
         x["customer_phone"] = data["customer_phone"]
     if data.get("quantity") is not None:
+        if int(data["quantity"]) <= 0:
+            raise HTTPException(400, "Quantity must be at least 1")
         x["quantity"] = int(data["quantity"])
     if data.get("unit_price_kobo") is not None:
+        if int(data["unit_price_kobo"]) <= 0:
+            raise HTTPException(400, "Unit price must be positive")
         x["unit_price_kobo"] = int(data["unit_price_kobo"])
         x["price_source"] = "MANUAL"
     if data.get("state") is not None:
@@ -344,6 +374,10 @@ def edit_draft(draft_id: int, body: DraftEditIn, user: User = Depends(require_pe
             raise HTTPException(404, "Product not found")
         if d.vendor_id and p.vendor_id != d.vendor_id:
             raise HTTPException(400, "Product must belong to the draft's vendor")
+        if data.get("variant_id"):
+            _v = db.get(ProductVariant, int(data["variant_id"]))
+            if not _v or _v.product_id != p.id:
+                raise HTTPException(400, "Variant does not belong to this product")
         x["product"] = {"product_id": p.id, "variant_id": int(data.get("variant_id") or 0),
                         "name": p.name, "sku": p.sku, "score": 100, "matched_label": "manual match"}
     if data.get("review_notes") is not None:
@@ -390,7 +424,7 @@ def confirm_draft(draft_id: int, user: User = Depends(require_perm("orders.manag
                            f"{(x.get('product') or {}).get('name')}. We will update you at every step. Thank you!")
         db.commit()
     except Exception:
-        pass
+        db.rollback()  # the order is already committed; a failed courtesy message must not poison the session
     return serialize(order)
 
 
@@ -412,8 +446,21 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
     vendor = db.get(Vendor, body.vendor_id)
     if not vendor:
         raise HTTPException(404, "Vendor not found")
+    if vendor.status != "ACTIVE":
+        raise HTTPException(400, "Vendor account is not active")
     if not body.items:
         raise HTTPException(400, "At least one item is required")
+    if not normalize_phone(body.customer_phone) or len(normalize_phone(body.customer_phone)) < 10:
+        raise HTTPException(400, "A valid customer phone number is required")
+    if not body.customer_name.strip():
+        raise HTTPException(400, "Customer name is required")
+    if body.payment_method not in PAYMENT_METHODS:
+        raise HTTPException(400, f"payment_method must be one of {', '.join(PAYMENT_METHODS)}")
+    for it in body.items:
+        if it.qty <= 0:
+            raise HTTPException(400, "Item quantity must be at least 1")
+        if it.unit_price_kobo is not None and it.unit_price_kobo <= 0:
+            raise HTTPException(400, "Unit price must be positive")
     if body.warehouse_id:
         wh = db.get(Warehouse, body.warehouse_id)
         if not wh or not wh.is_active:
@@ -429,6 +476,10 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
             raise HTTPException(404, f"Product {it.product_id} not found")
         if p.vendor_id != body.vendor_id:
             raise HTTPException(400, f"Product {p.name} does not belong to vendor {vendor.name}")
+        if it.variant_id:
+            pv = db.get(ProductVariant, it.variant_id)
+            if not pv or pv.product_id != p.id:
+                raise HTTPException(400, f"Variant {it.variant_id} does not belong to {p.name}")
         price = it.unit_price_kobo if it.unit_price_kobo is not None else (p.default_sell_price_kobo or 0)
         if price <= 0:
             raise HTTPException(400, f"No price for {p.name}. Set a price on the product first.")
@@ -514,6 +565,8 @@ def change_status(order_id: int, body: StatusIn, user: User = Depends(require_pe
     elif to == "DELIVERED":
         o.delivered_at = utcnow()
         consume_reservations(db, o.id, user)
+        from app.modules.cod import ensure_cod_pending
+        ensure_cod_pending(db, o)
     elif to == "RETURNED_TO_WAREHOUSE":
         restock_return(db, o.id, user)
     elif to == "CONFIRMED":
@@ -530,12 +583,18 @@ def change_status(order_id: int, body: StatusIn, user: User = Depends(require_pe
 
 
 @router.post("/{order_id}/assign")
-def assign_order(order_id: int, body: dict, user: User = Depends(require_perm("orders.manage")), db: Session = Depends(get_db)):
+def assign_order(order_id: int, body: AssignIn, user: User = Depends(require_perm("orders.manage")), db: Session = Depends(get_db)):
     o = db.get(Order, order_id)
     if not o:
         raise HTTPException(404, "Order not found")
-    o.assigned_user_id = body.get("user_id")
-    add_event(db, o, "ASSIGNED", actor=user, note=f"Assigned to user #{body.get('user_id')}")
+    assignee = None
+    if body.user_id is not None:
+        assignee = db.get(User, body.user_id)
+        if not assignee or not assignee.is_active or assignee.is_vendor:
+            raise HTTPException(400, "Assignee must be an active staff user")
+    o.assigned_user_id = body.user_id
+    add_event(db, o, "ASSIGNED", actor=user,
+              note=f"Assigned to {assignee.full_name}" if assignee else "Unassigned")
     db.commit()
     return serialize(o)
 
@@ -568,6 +627,8 @@ class CustomerIn(BaseModel):
 
 @customers_router.post("")
 def create_customer(body: CustomerIn, user: User = Depends(require_perm("orders.manage")), db: Session = Depends(get_db)):
+    if not db.get(Vendor, body.vendor_id):
+        raise HTTPException(404, "Vendor not found")
     c = upsert_customer(db, body.vendor_id, body.name, body.phone, body.alt_phone)
     c.email = body.email
     c.notes = body.notes
@@ -595,6 +656,10 @@ def record_attempt(order_id: int, body: AttemptIn, user: User = Depends(require_
     o = db.get(Order, order_id)
     if not o:
         raise HTTPException(404, "Order not found")
+    if body.outcome not in ATTEMPT_OUTCOMES:
+        raise HTTPException(400, f"outcome must be one of {', '.join(ATTEMPT_OUTCOMES)}")
+    if o.status not in ATTEMPT_ALLOWED_ORDER_STATUSES:
+        raise HTTPException(400, f"Order is {o.status}; customer confirmation no longer applies")
     cf = db.query(CustomerConfirmation).filter(CustomerConfirmation.order_id == order_id).first()
     if not cf:
         cf = CustomerConfirmation(order_id=order_id, agent_user_id=user.id)

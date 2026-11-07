@@ -3,8 +3,10 @@ definePageMeta({ layout: false })
 const { login, user } = useAuth()
 const route = useRoute()
 
-const email = ref('owner@keyway.ng')
-const password = ref('Keyway@2026')
+// Demo credentials are only prefilled in local development builds, never in production.
+const isDev = import.meta.dev
+const email = ref(isDev ? 'owner@keyway.ng' : '')
+const password = ref(isDev ? 'Keyway@2026' : '')
 const loading = ref(false)
 const error = ref('')
 
@@ -13,7 +15,9 @@ async function submit() {
   error.value = ''
   try {
     const u = await login(email.value.trim(), password.value)
-    const next = (route.query.next as string) || ''
+    const raw = (route.query.next as string) || ''
+    // only same-site relative paths (blocks open redirects like //evil.com or https://evil.com)
+    const next = raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/\\') ? raw : ''
     if (next) await navigateTo(next)
     else await navigateTo(u?.is_vendor ? '/portal' : '/dashboard')
   } catch (e: any) {
@@ -79,7 +83,7 @@ const demoAccounts = [
           </UButton>
         </form>
 
-        <UCard class="mt-8" :ui="{ body: 'p-3' }">
+        <UCard v-if="isDev" class="mt-8" :ui="{ body: 'p-3' }">
           <p class="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-2">Demo accounts · password {{ 'Keyway@2026' }}</p>
           <div class="space-y-1">
             <button

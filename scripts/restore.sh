@@ -2,7 +2,8 @@
 # Keyway restore wrapper: stops the API, restores, brings the stack back up.
 #   bash scripts/restore.sh backups/keyway-20260101-090000.db
 set -e
-ZDIR="/home/z/my-project/.zscripts"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ZDIR="$ROOT/.zscripts"
 cd "$(dirname "$0")/.."
 
 echo "[restore] stopping API..."

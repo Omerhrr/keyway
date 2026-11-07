@@ -62,6 +62,9 @@ export function useAuth() {
     access.value = null
     refresh.value = null
     user.value = null
+    if (import.meta.client && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.controller?.postMessage({ type: 'CLEAR_CACHES' })
+    }
   }
 
   function can(perm: string): boolean {

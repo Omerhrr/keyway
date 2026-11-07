@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, DateTime, Text
+from sqlalchemy import BigInteger, String, Integer, ForeignKey, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, utcnow
 
@@ -9,8 +9,8 @@ class CODCollection(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(Integer, index=True)
     delivery_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    expected_kobo: Mapped[int] = mapped_column(Integer, default=0)
-    collected_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    expected_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    collected_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     # CASH | BANK_TRANSFER | DIGITAL
     method: Mapped[str] = mapped_column(String(20), default="CASH")
     collected_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -18,7 +18,7 @@ class CODCollection(Base):
     collected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # PENDING_VERIFICATION | VERIFIED | DISCREPANCY | UNVERIFIED
     status: Mapped[str] = mapped_column(String(30), default="PENDING_VERIFICATION", index=True)
-    discrepancy_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    discrepancy_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     handover_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     verified_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -33,8 +33,8 @@ class CashHandover(Base):
     rider_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # who hands over
     handed_to_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    amount_expected_kobo: Mapped[int] = mapped_column(Integer, default=0)
-    amount_counted_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    amount_expected_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    amount_counted_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     # PENDING | CONFIRMED | DISCREPANCY
     status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
     handed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db, utcnow
-from app.core.security import verify_password, hash_password, create_access_token, create_refresh_token, decode_token
+from app.core.security import (verify_password, hash_password, create_access_token,
+                               create_refresh_token, decode_token, pwd_fingerprint)
 from app.core.deps import get_current_user, require_staff, require_perm, get_user_permissions
 from app.core.serialize import serialize, serialize_list
 from app.core.audit import audit
@@ -84,6 +85,29 @@ class UserUpdate(BaseModel):
     password: str | None = None
 
 
+_DUMMY_HASH = hash_password("keyway-timing-equaliser")
+MIN_PASSWORD_LEN = 8
+
+
+def _tokens(user: User) -> dict:
+    """Token pair bound to the user's current password (changing it revokes them)."""
+    extra = {"pv": pwd_fingerprint(user.password_hash)}
+    return {"access_token": create_access_token(user.id, extra),
+            "refresh_token": create_refresh_token(user.id, extra)}
+
+
+def _clean_email(email: str) -> str:
+    e = (email or "").strip().lower()
+    if "@" not in e or e.startswith("@") or e.endswith("@") or " " in e:
+        raise HTTPException(400, "A valid email address is required")
+    return e
+
+
+def _check_password(pw: str) -> None:
+    if len(pw or "") < MIN_PASSWORD_LEN:
+        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LEN} characters")
+
+
 def _user_payload(db: Session, user: User) -> dict:
     role = db.get(Role, user.role_id) if user.role_id else None
     perms = sorted(get_user_permissions(db, user))
@@ -100,6 +124,8 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     key = _throttle_key(request, body.email)
     _assert_not_locked(key)
     user = db.query(User).filter(User.email == body.email.strip().lower()).first()
+    if not user:
+        verify_password(body.password, _DUMMY_HASH)  # equalise timing: no user enumeration
     if not user or not verify_password(body.password, user.password_hash):
         _register_failure(key)
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -108,11 +134,7 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     _LOGIN_FAILS.pop(key, None)  # successful login clears the failure window
     user.last_login_at = utcnow()
     db.commit()
-    return {
-        "access_token": create_access_token(user.id),
-        "refresh_token": create_refresh_token(user.id),
-        "user": _user_payload(db, user),
-    }
+    return {**_tokens(user), "user": _user_payload(db, user)}
 
 
 @router.post("/auth/refresh")
@@ -124,11 +146,9 @@ def refresh(body: RefreshIn, db: Session = Depends(get_db)):
     user = db.get(User, int(payload["sub"]))
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Account inactive")
-    return {
-        "access_token": create_access_token(user.id),
-        "refresh_token": create_refresh_token(user.id),
-        "user": _user_payload(db, user),
-    }
+    if payload.get("pv") != pwd_fingerprint(user.password_hash):
+        raise HTTPException(status_code=401, detail="Session expired - please sign in again")
+    return {**_tokens(user), "user": _user_payload(db, user)}
 
 
 @router.get("/auth/me")
@@ -152,9 +172,17 @@ def list_users(user: User = Depends(require_staff), db: Session = Depends(get_db
 
 @router.post("/users")
 def create_user(body: UserCreate, user: User = Depends(require_perm("settings.manage")), db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == body.email.strip().lower()).first():
+    email = _clean_email(body.email)
+    _check_password(body.password)
+    if db.query(User).filter(User.email == email).first():
         raise HTTPException(400, "Email already exists")
-    u = User(email=body.email.strip().lower(), password_hash=hash_password(body.password),
+    if body.role_id is not None and not db.get(Role, body.role_id):
+        raise HTTPException(400, "Unknown role")
+    if body.is_vendor:
+        from app.modules.vendors_models import Vendor
+        if not body.vendor_id or not db.get(Vendor, body.vendor_id):
+            raise HTTPException(400, "A vendor-portal user needs a valid vendor_id")
+    u = User(email=email, password_hash=hash_password(body.password),
              full_name=body.full_name, phone=body.phone, role_id=body.role_id,
              department=body.department, job_title=body.job_title, warehouse_id=body.warehouse_id,
              is_vendor=body.is_vendor, vendor_id=body.vendor_id if body.is_vendor else None)
@@ -171,12 +199,21 @@ def update_user(user_id: int, body: UserUpdate, user: User = Depends(require_per
     if not u:
         raise HTTPException(404, "User not found")
     data = body.model_dump(exclude_unset=True)
+    if u.id == user.id and data.get("is_active") is False:
+        raise HTTPException(400, "You cannot deactivate your own account")
+    if data.get("role_id") is not None and not db.get(Role, data["role_id"]):
+        raise HTTPException(400, "Unknown role")
     if "password" in data and data["password"]:
-        u.password_hash = hash_password(data.pop("password"))
+        _check_password(data["password"])
+        u.password_hash = hash_password(data.pop("password"))  # also revokes existing sessions
     else:
         data.pop("password", None)
     for k, v in data.items():
         setattr(u, k, v)
+    if not u.is_vendor:
+        u.vendor_id = None
+    elif not u.vendor_id:
+        raise HTTPException(400, "A vendor-portal user needs a vendor_id")
     db.commit()
     audit(db, user, "update", "user", u.id, f"Updated user {u.email}")
     db.commit()
@@ -184,7 +221,7 @@ def update_user(user_id: int, body: UserUpdate, user: User = Depends(require_per
 
 
 @router.get("/roles")
-def list_roles(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_roles(user: User = Depends(require_staff), db: Session = Depends(get_db)):
     roles = db.query(Role).order_by(Role.id).all()
     perms = db.query(Permission).order_by(Permission.module, Permission.codename).all()
     matrix = db.query(RolePermission).all()

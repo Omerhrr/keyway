@@ -77,7 +77,8 @@ def get_or_create_balance(db: Session, product_id: int, variant_id: int, warehou
          .filter(InventoryBalance.product_id == product_id,
                  InventoryBalance.variant_id == (variant_id or 0),
                  InventoryBalance.warehouse_id == warehouse_id,
-                 InventoryBalance.location_id == 0).first())
+                 InventoryBalance.location_id == 0)
+         .with_for_update().first())  # row lock on Postgres; no-op on SQLite
     if not b:
         b = InventoryBalance(product_id=product_id, variant_id=variant_id or 0,
                              warehouse_id=warehouse_id, location_id=0)
@@ -133,16 +134,28 @@ def consume_reservations(db, order_id, actor=None):
 
 
 def restock_return(db, order_id, actor=None):
-    """Returned goods back to available stock (restocking rule: back to physical, reservation freed)."""
+    """Goods coming back to the warehouse.
+
+    * ACTIVE reservation  -> the goods never physically left the books (they were only
+      reserved), so the reservation is simply released. Nothing is added to damaged.
+    * CONSUMED reservation -> stock was already deducted on delivery; the returned units
+      re-enter as 'returns pending inspection' (qty_damaged) so they are not lost.
+    """
     res = db.query(StockReservation).filter(StockReservation.order_id == order_id,
-                                            StockReservation.status == "ACTIVE").all()
+                                            StockReservation.status.in_(("ACTIVE", "CONSUMED"))).all()
     for r in res:
         b = get_or_create_balance(db, r.product_id, r.variant_id, r.warehouse_id)
-        b.qty_reserved = max(0, b.qty_reserved - r.qty)
-        b.qty_damaged += r.qty  # returns go to damaged/returns pending inspection
-        r.status = "RELEASED"
-        _movement(db, r.product_id, r.variant_id, r.warehouse_id, "RETURN", r.qty,
-                  f"Return from order #{order_id} pending inspection", "order", order_id, actor)
+        if r.status == "ACTIVE":
+            b.qty_reserved = max(0, b.qty_reserved - r.qty)
+            r.status = "RELEASED"
+            r.released_at = utcnow()
+            _movement(db, r.product_id, r.variant_id, r.warehouse_id, "RELEASE", -r.qty,
+                      f"Return from order #{order_id}: reservation released", "order", order_id, actor)
+        else:
+            b.qty_damaged += r.qty
+            r.status = "RETURNED"
+            _movement(db, r.product_id, r.variant_id, r.warehouse_id, "RETURN", r.qty,
+                      f"Return from order #{order_id} pending inspection", "order", order_id, actor)
 
 
 @router.get("/warehouses")
@@ -230,6 +243,10 @@ def delete_warehouse(warehouse_id: int, user: User = Depends(require_perm("inven
 
 @router.post("/locations")
 def create_location(body: LocationIn, user: User = Depends(require_perm("inventory.manage")), db: Session = Depends(get_db)):
+    if not db.get(Warehouse, body.warehouse_id):
+        raise HTTPException(404, "Warehouse not found")
+    if not body.code.strip():
+        raise HTTPException(400, "Location code is required")
     l = WarehouseLocation(**body.model_dump())
     db.add(l)
     db.commit()
@@ -286,8 +303,17 @@ def adjust(body: AdjustIn, user: User = Depends(require_perm("inventory.manage")
         raise HTTPException(404, "Balance not found")
     if not body.reason.strip():
         raise HTTPException(400, "A reason is required for every stock adjustment")
-    b.qty_physical = max(0, b.qty_physical + body.delta_physical)
-    b.qty_damaged = max(0, b.qty_damaged + body.delta_damaged)
+    if not body.delta_physical and not body.delta_damaged:
+        raise HTTPException(400, "Nothing to adjust: both deltas are zero")
+    new_physical = b.qty_physical + body.delta_physical
+    new_damaged = b.qty_damaged + body.delta_damaged
+    if new_physical < 0 or new_damaged < 0:
+        raise HTTPException(400, "Adjustment would make stock negative")
+    if new_physical < b.qty_reserved:
+        raise HTTPException(400, f"Adjustment would leave physical stock ({new_physical}) below "
+                                 f"units already reserved for orders ({b.qty_reserved})")
+    b.qty_physical = new_physical
+    b.qty_damaged = new_damaged
     if body.delta_physical:
         _movement(db, b.product_id, b.variant_id, b.warehouse_id, "ADJUST", body.delta_physical, body.reason, "manual", "", user)
     if body.delta_damaged:
@@ -337,6 +363,10 @@ def get_receipt(receipt_id: int, user: User = Depends(require_staff), db: Sessio
 def create_receipt(body: ReceiptIn, user: User = Depends(require_perm("inventory.manage")), db: Session = Depends(get_db)):
     if not body.lines:
         raise HTTPException(400, "At least one product line is required")
+    if not db.get(Vendor, body.vendor_id):
+        raise HTTPException(400, "Vendor not found")
+    if not db.get(Warehouse, body.warehouse_id):
+        raise HTTPException(400, "Warehouse not found")
     r = StockReceipt(reference="PENDING", vendor_id=body.vendor_id, warehouse_id=body.warehouse_id,
                      batch_ref=body.batch_ref, notes=body.notes, created_by_user_id=user.id, status="DRAFT")
     db.add(r)
@@ -348,6 +378,12 @@ def create_receipt(body: ReceiptIn, user: User = Depends(require_perm("inventory
             raise HTTPException(400, f"Product {line.product_id} not found")
         if p.vendor_id != body.vendor_id:
             raise HTTPException(400, f"Product {p.name} does not belong to this vendor (vendor-owned inventory rule)")
+        if min(line.expected_qty, line.received_qty, line.damaged_qty) < 0:
+            raise HTTPException(400, "Quantities cannot be negative")
+        if line.variant_id:
+            pv = db.get(ProductVariant, line.variant_id)
+            if not pv or pv.product_id != p.id:
+                raise HTTPException(400, f"Variant {line.variant_id} does not belong to {p.name}")
         db.add(StockReceiptLine(receipt_id=r.id, product_id=line.product_id,
                                 variant_id=line.variant_id or 0, expected_qty=line.expected_qty,
                                 received_qty=line.received_qty, damaged_qty=line.damaged_qty, note=line.note))
@@ -427,6 +463,10 @@ def create_transfer(body: TransferIn, user: User = Depends(require_perm("invento
     p = db.get(Product, body.product_id)
     if not p:
         raise HTTPException(404, "Product not found")
+    if body.variant_id:
+        pv = db.get(ProductVariant, body.variant_id)
+        if not pv or pv.product_id != p.id:
+            raise HTTPException(400, "Variant does not belong to this product")
     sb = get_or_create_balance(db, body.product_id, body.variant_id, body.from_warehouse_id)
     available = sb.qty_physical - sb.qty_reserved
     if available < body.qty:

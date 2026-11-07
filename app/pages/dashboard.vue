@@ -40,7 +40,7 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
       <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
         <StatCard label="Orders received" :value="d.orders_today" icon="i-lucide-inbox" tone="primary" />
         <StatCard label="Delivered" :value="d.delivered_today" icon="i-lucide-package-check" tone="success" />
-        <StatCard label="Cash collected" :value="fmtNaira(d.cash_collected_today_kobo)" icon="i-lucide-banknote" tone="success" />
+        <StatCard v-if="d.cash_collected_today_kobo != null" label="Cash collected" :value="fmtNaira(d.cash_collected_today_kobo)" icon="i-lucide-banknote" tone="success" />
         <StatCard label="Failed deliveries" :value="d.failed_deliveries" icon="i-lucide-package-x" tone="error" />
         <StatCard label="Drafts to review" :value="d.drafts_pending_review" icon="i-lucide-file-input" tone="warning" to="/drafts" />
         <StatCard label="Unknown senders" :value="d.unassigned_senders" icon="i-lucide-user-question" tone="warning" to="/conversations" />
@@ -60,9 +60,9 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
       <!-- Money + stock -->
       <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Money & stock</p>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-        <StatCard label="Vendor payables" :value="fmtNaira(d.vendor_payables_kobo)" icon="i-lucide-wallet" tone="primary" sub="Verified collections - charges - settled" />
-        <StatCard label="Logistics revenue" :value="fmtNaira(d.logistics_revenue_kobo)" icon="i-lucide-trending-up" tone="success" sub="Charges recognized" />
-        <StatCard label="Inventory value" :value="fmtNaira(d.inventory_value_kobo)" icon="i-lucide-warehouse" sub="At sell price" />
+        <StatCard v-if="d.vendor_payables_kobo != null" label="Vendor payables" :value="fmtNaira(d.vendor_payables_kobo)" icon="i-lucide-wallet" tone="primary" sub="Verified collections - charges - settled" />
+        <StatCard v-if="d.logistics_revenue_kobo != null" label="Logistics revenue" :value="fmtNaira(d.logistics_revenue_kobo)" icon="i-lucide-trending-up" tone="success" sub="Charges recognized" />
+        <StatCard v-if="d.inventory_value_kobo != null" label="Inventory value" :value="fmtNaira(d.inventory_value_kobo)" icon="i-lucide-warehouse" sub="At sell price" />
         <StatCard label="Low stock alerts" :value="d.low_stock_alerts" icon="i-lucide-triangle-alert" :tone="d.low_stock_alerts ? 'warning' : 'neutral'" to="/inventory" />
       </div>
 

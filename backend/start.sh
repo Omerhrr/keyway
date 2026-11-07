@@ -4,7 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-HOST="${KEYWAY_API_HOST:-0.0.0.0}"
+HOST="${KEYWAY_API_HOST:-127.0.0.1}"
 PORT="${KEYWAY_API_PORT:-8000}"
 
 # Prefer a dedicated backend venv; fall back to the sandbox Python when

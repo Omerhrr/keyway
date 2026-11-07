@@ -11,7 +11,10 @@ see `.env.example`). In production:
 - [ ] `KEYWAY_SECRET_KEY` — set a long random value (`python3 -c "import secrets;print(secrets.token_urlsafe(48))"`).
       The default `keyway-dev-secret-change-me` invalidates all JWTs and lets
       anyone forge tokens.
-- [ ] `KEYWAY_ENV=production` — disables dev conveniences.
+- [ ] `KEYWAY_ENV=production` — **enforced at boot**: the API refuses to start with the default or
+      short (<32 chars) secret or with CORS `*`, and never seeds demo data.
+- [ ] `KEYWAY_BOOTSTRAP_ADMIN_EMAIL` / `KEYWAY_BOOTSTRAP_ADMIN_PASSWORD` (>= 12 chars) — used once, on the
+      first start of an empty database, to create the administrator. Change the password after login.
 - [ ] `KEYWAY_CORS_ORIGINS` — set to your exact dashboard origin(s). The dev
       default `*` must never reach production.
 - [ ] Never commit `.env`. Rotate any credential that has ever appeared in a
@@ -30,9 +33,8 @@ What you must supply from Meta:
       `whatsapp_business_messaging` + `whatsapp_business_management`.
 - [ ] `KEYWAY_WHATSAPP_PHONE_NUMBER_ID` and `KEYWAY_WHATSAPP_WABA_ID`.
 - [ ] `KEYWAY_WHATSAPP_APP_SECRET` — enables X-Hub-Signature-256 webhook
-      verification. Webhook POSTs are **rejected** when this is set and the
-      signature mismatches; unset, the webhook only accepts with a loud warning,
-      so do not launch without it.
+      verification. Webhook POSTs are **rejected** when the
+      signature mismatches **or when this is unset** (fail-closed).
 - [ ] `KEYWAY_WHATSAPP_VERIFY_TOKEN` — any random string; must match what you
       type into Meta's webhook subscription dialog.
 - [ ] Meta App Dashboard → WhatsApp → Configuration → Webhook:
@@ -64,9 +66,12 @@ concurrency (this is the intended launch shape).
 - [ ] If you later scale to multiple API workers or heavier write load, move to
       PostgreSQL: set `KEYWAY_DATABASE_URL` and switch `create_all` to a real
       migration tool (Alembic) before doing so.
-- [ ] First boot in production starts on an **empty** database by design — the
-      rich demo seed only runs when the db is empty. Create the real owner
-      account immediately and delete/staff the demo users if any were seeded.
+- [ ] First boot in production starts on an **empty** database by design. With `KEYWAY_ENV=production`
+      only reference data (roles, chart of accounts, one placeholder warehouse) and the bootstrap
+      administrator are created — **no demo users, vendors or balances**. Rename the warehouse and
+      post real opening balances through the Finance screen.
+- [ ] Never run production with `KEYWAY_ENV` unset: that is development mode and seeds demo accounts
+      with a publicly known password.
 
 ## 4. Deployment
 

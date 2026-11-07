@@ -43,11 +43,13 @@ _INTENT_RULES = [
                    r"\banother order\b", r"\bbuy\b", r"\bprocess\b"]),
 ]
 
-PHONE_RE = re.compile(r"(?:\+?234|0)([789]\d{9})")
+PHONE_RE = re.compile(r"(?<!\d)(?:\+?234|0)([789]\d{9})(?!\d)")
 ORDER_REF_RE = re.compile(r"\bKW-\d{3,6}\b", re.IGNORECASE)
 QTY_RE = re.compile(r"\b(\d{1,3})\s*(?:pcs|pieces|piece|units?|x)\b", re.IGNORECASE)
 AMOUNT_K_RE = re.compile(r"\b(\d{1,3})\s*k\b", re.IGNORECASE)
-AMOUNT_RE = re.compile(r"(?:\u20a6|ngn|n)\s?(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{3,7}(?:\.\d{1,2})?)", re.IGNORECASE)
+AMOUNT_RE = re.compile(r"(?:\u20a6|(?<![A-Za-z])ngn|(?<![A-Za-z])n)\s?(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{3,7}(?:\.\d{1,2})?)(?![\d,])", re.IGNORECASE)
+KNOWN_INTENTS = {i for i, _ in _INTENT_RULES} | {"UNKNOWN_INTENT", "GENERAL_MESSAGE"}
+SIZE_PREFIX_RE = re.compile(r"(?:size|sz|no\.?|number|#|eu|uk|us)\s*$", re.IGNORECASE)
 
 
 def classify_intent(text: str) -> tuple[str, float]:
@@ -75,7 +77,7 @@ def _num(s: str) -> int:
 
 def extract_amounts(text: str) -> list[int]:
     """Amount candidates in kobo. '45k' shorthand and comma-formatted numbers."""
-    text = text or ""
+    text = PHONE_RE.sub(" ", text or "")  # a phone number is never a price
     kobo = []
     for m in AMOUNT_K_RE.finditer(text):
         kobo.append(int(m.group(1)) * 1000 * 100)
@@ -92,10 +94,15 @@ def extract_qty(text: str) -> int | None:
     for w, n in _NUM_WORDS.items():
         if re.search(rf"\b{w}\b", text.lower()):
             return n
-    # bare small number before a product-ish word ("2 black sneakers")
-    m = re.search(r"\b(\d{1,2})\s+[a-z]", text.lower())
-    if m:
-        return int(m.group(1))
+    # bare small number before a product-ish word ("2 black sneakers"), but never a
+    # size / number marker ("size 42 sneakers", "no 7", "#12")
+    low = PHONE_RE.sub(" ", text.lower())
+    for m in re.finditer(r"(?<![\d.,])(\d{1,2})\s+[a-z]", low):
+        if SIZE_PREFIX_RE.search(low[:m.start()]):
+            continue
+        n = int(m.group(1))
+        if n > 0:
+            return n
     return None
 
 
@@ -317,7 +324,7 @@ def analyze_message(db, vendor, text: str) -> dict:
             llm_used = True
             llm_conf = float(llm.get("confidence") or 0)
             if llm.get("customer_name") and not name:
-                name = llm["customer_name"]
+                name = str(llm["customer_name"])[:120]
             if llm.get("customer_phone") and not phones:
                 norm = re.sub(r"\D", "", str(llm["customer_phone"]))
                 if norm.startswith("234"):
@@ -326,14 +333,15 @@ def analyze_message(db, vendor, text: str) -> dict:
                     phones = [norm]
             if llm.get("quantity") and not qty:
                 try:
-                    qty = int(llm["quantity"])
+                    q = int(llm["quantity"])
+                    qty = q if 1 <= q <= 999 else None  # never trust an out-of-range LLM quantity
                 except (TypeError, ValueError):
                     pass
             if llm.get("state") and not place["state"]:
-                place["state"] = llm["state"]
+                place["state"] = str(llm["state"])[:60]
             if llm.get("city") and not place["city"]:
-                place["city"] = llm["city"]
-            if llm.get("intent") and intent in ("GENERAL_MESSAGE", "UNKNOWN_INTENT"):
+                place["city"] = str(llm["city"])[:60]
+            if llm.get("intent") in KNOWN_INTENTS and intent in ("GENERAL_MESSAGE", "UNKNOWN_INTENT"):
                 intent = llm["intent"]
                 intent_conf = max(intent_conf, 0.6)
             if not resolved and llm.get("product_query"):

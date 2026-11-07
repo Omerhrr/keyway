@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db, utcnow
-from app.core.deps import require_staff, require_perm
+from app.core.deps import require_perm, require_any_perm
 from app.core.serialize import serialize, serialize_list
 from app.core.audit import audit
 from app.core.ids import next_ref
@@ -15,6 +15,9 @@ from app.modules.charges_models import Charge
 from app.modules.notify import notify
 
 router = APIRouter(prefix="/api/settlements", tags=["settlements"])
+require_settlement_view = require_any_perm("settlements.manage", "settlements.approve",
+                                           "finance.manage", "reports.view")
+PAY_METHODS = ("BANK_TRANSFER", "CASH", "DIGITAL", "CHEQUE", "POS", "OTHER")
 
 
 class BuildIn(BaseModel):
@@ -29,7 +32,7 @@ class PayIn(BaseModel):
 
 
 @router.get("")
-def list_settlements(user: User = Depends(require_staff), db: Session = Depends(get_db), status: str = "", vendor_id: int = 0):
+def list_settlements(user: User = Depends(require_settlement_view), db: Session = Depends(get_db), status: str = "", vendor_id: int = 0):
     query = (db.query(Settlement, Vendor).join(Vendor, Vendor.id == Settlement.vendor_id))
     if status:
         query = query.filter(Settlement.status == status)
@@ -54,7 +57,8 @@ def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlemen
 
     collections = (db.query(CODCollection)
                    .filter(CODCollection.order_id.in_(order_ids or [0]),
-                           CODCollection.status == "VERIFIED")
+                           CODCollection.status.in_(("VERIFIED", "DISCREPANCY")),
+                           CODCollection.verified_at.isnot(None))
                    .order_by(CODCollection.id).all())
     collections = [c for c in collections if c.id not in settled_collection_ids]
     # Charges settle against the orders whose collections are being settled
@@ -69,8 +73,11 @@ def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlemen
     gross = sum(c.collected_kobo for c in collections)
     charges_total = sum(ch.amount_kobo for ch in charges)
     net = gross - charges_total
-    if net <= 0 and gross <= 0:
+    if not collections and not charges:
         raise HTTPException(400, "No verified collections available to settle for this vendor")
+    if net <= 0:
+        raise HTTPException(400, "Nothing payable: charges meet or exceed verified collections. "
+                                 "Leave them to carry forward to the next settlement.")
 
     s = Settlement(reference="PENDING", vendor_id=vendor.id,
                    gross_kobo=gross, charges_kobo=charges_total,
@@ -99,7 +106,7 @@ def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlemen
 
 
 @router.get("/{settlement_id}")
-def get_settlement(settlement_id: int, user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def get_settlement(settlement_id: int, user: User = Depends(require_settlement_view), db: Session = Depends(get_db)):
     s = db.get(Settlement, settlement_id)
     if not s:
         raise HTTPException(404, "Settlement not found")
@@ -122,6 +129,8 @@ def approve(settlement_id: int, user: User = Depends(require_perm("settlements.a
         raise HTTPException(404, "Settlement not found")
     if s.status != "READY_FOR_APPROVAL":
         raise HTTPException(400, f"Cannot approve a settlement in status {s.status}")
+    if s.created_by_user_id == user.id and not user.is_superuser:
+        raise HTTPException(403, "Segregation of duties: someone other than the builder must approve")
     s.status = "APPROVED"
     s.approved_by_user_id = user.id
     s.approved_at = utcnow()
@@ -140,6 +149,8 @@ def record_payment(settlement_id: int, body: PayIn, user: User = Depends(require
         raise HTTPException(400, f"Settlement must be APPROVED before payment (currently {s.status})")
     if body.amount_kobo <= 0:
         raise HTTPException(400, "Payment amount must be positive")
+    if body.method not in PAY_METHODS:
+        raise HTTPException(400, f"Unknown payment method. Valid: {', '.join(PAY_METHODS)}")
     if s.paid_kobo + body.amount_kobo > s.net_kobo:
         raise HTTPException(400, "Payment exceeds the settlement net amount")
 

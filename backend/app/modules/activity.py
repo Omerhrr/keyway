@@ -213,8 +213,9 @@ def test_rule(rule_id: int, user: User = Depends(require_perm("settings.manage")
 
 
 @router.get("/audit")
-def audit_logs(user: User = Depends(require_staff), db: Session = Depends(get_db),
+def audit_logs(user: User = Depends(require_perm("audit.view")), db: Session = Depends(get_db),
                entity_type: str = "", limit: int = 200):
+    limit = max(1, min(limit, 500))
     q = db.query(AuditLog)
     if entity_type:
         q = q.filter(AuditLog.entity_type == entity_type)

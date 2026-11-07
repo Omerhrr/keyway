@@ -24,7 +24,7 @@ def summary(user: User = Depends(get_vendor_user), db: Session = Depends(get_db)
     v = db.get(Vendor, vid)
     order_ids = [r[0] for r in db.query(Order.id).filter(Order.vendor_id == vid).all()]
     verified = (db.query(func.coalesce(func.sum(CODCollection.collected_kobo), 0))
-                .filter(CODCollection.order_id.in_(order_ids or [0]), CODCollection.status == "VERIFIED").scalar() or 0)
+                .filter(CODCollection.order_id.in_(order_ids or [0]), CODCollection.verified_at.isnot(None)).scalar() or 0)
     charges = (db.query(func.coalesce(func.sum(Charge.amount_kobo), 0))
                .filter(Charge.vendor_id == vid, Charge.status == "APPLIED").scalar() or 0)
     # Outstanding payable straight from the double-entry ledger (vendor-scoped journal lines)
@@ -32,7 +32,7 @@ def summary(user: User = Depends(get_vendor_user), db: Session = Depends(get_db)
     from sqlalchemy import and_
     ledger_payable = (db.query(func.coalesce(func.sum(JournalLine.credit_kobo - JournalLine.debit_kobo), 0))
                       .select_from(JournalLine).join(JournalEntry, JournalEntry.id == JournalLine.entry_id)
-                      .filter(JournalLine.vendor_id == vid, JournalEntry.status == "POSTED",
+                      .filter(JournalLine.vendor_id == vid, JournalEntry.status.in_(("POSTED", "REVERSED")),
                               JournalEntry.source_type.in_(["COD_COLLECTION", "CHARGE_RECOGNITION", "SETTLEMENT_PAYOUT"]))
                       .scalar() or 0)
     settled = (db.query(func.coalesce(func.sum(Settlement.net_kobo), 0))

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, ForeignKey, DateTime, Text, JSON, UniqueConstraint, Float
+from sqlalchemy import BigInteger, String, Boolean, Integer, ForeignKey, DateTime, Text, JSON, UniqueConstraint, Float
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base, utcnow
 
@@ -77,9 +77,9 @@ class Order(Base):
     delivery_landmark: Mapped[str] = mapped_column(String(255), default="")
     delivery_gps: Mapped[str] = mapped_column(String(80), default="")
     instructions: Mapped[str] = mapped_column(Text, default="")
-    items_total_kobo: Mapped[int] = mapped_column(Integer, default=0)
-    delivery_fee_kobo: Mapped[int] = mapped_column(Integer, default=0)
-    cod_amount_kobo: Mapped[int] = mapped_column(Integer, default=0)  # expected COD
+    items_total_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    delivery_fee_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    cod_amount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)  # expected COD
     assigned_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -98,8 +98,8 @@ class OrderItem(Base):
     name_snapshot: Mapped[str] = mapped_column(String(220))
     sku_snapshot: Mapped[str] = mapped_column(String(80), default="")
     qty: Mapped[int] = mapped_column(Integer, default=1)
-    unit_price_kobo: Mapped[int] = mapped_column(Integer, default=0)
-    line_total_kobo: Mapped[int] = mapped_column(Integer, default=0)
+    unit_price_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    line_total_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     # EXTRACTED | DEFAULT | MANUAL
     price_source: Mapped[str] = mapped_column(String(20), default="DEFAULT")
 

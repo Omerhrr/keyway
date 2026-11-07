@@ -1,9 +1,9 @@
-// Keyway PWA service worker v3
-// - navigations: network-first -> cache -> /offline.html
+// Keyway PWA service worker v4
+// - navigations: network-only -> /offline.html (authenticated HTML is NEVER cached: shared devices)
 // - build assets (/_nuxt/): stale-while-revalidate (instant loads, bg refresh)
 // - other same-origin GETs: network-first with cache fallback
 // - API traffic is never cached (operational + financial data must be fresh)
-const VERSION = 'keyway-v3'
+const VERSION = 'keyway-v4'
 const SHELL = ['/', '/login', '/offline.html', '/manifest.webmanifest', '/logo.svg',
   '/icons/icon-192.png', '/icons/icon-512.png',
   '/icons/icon-maskable-192.png', '/icons/icon-maskable-512.png']
@@ -22,6 +22,7 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('message', (e) => {
   if (e.data?.type === 'SKIP_WAITING') self.skipWaiting()
+  if (e.data?.type === 'CLEAR_CACHES') e.waitUntil(caches.keys().then((ks) => Promise.all(ks.map((k) => caches.delete(k)))))
 })
 
 async function staleWhileRevalidate(request) {
@@ -56,10 +57,13 @@ self.addEventListener('fetch', (e) => {
   if (url.search || url.pathname.includes('/@fs/')) return
 
   if (e.request.mode === 'navigate') {
-    e.respondWith(networkFirst(e.request, { fallback: '/offline.html' }))
+    e.respondWith(fetch(e.request).catch(async () => {
+      const cache = await caches.open(VERSION)
+      return (await cache.match('/offline.html')) || Response.error()
+    }))
   } else if (url.pathname.startsWith('/_nuxt/') || url.pathname.startsWith('/icons/')) {
     e.respondWith(staleWhileRevalidate(e.request))
-  } else {
+  } else if (SHELL.includes(url.pathname)) {
     e.respondWith(networkFirst(e.request))
   }
 })

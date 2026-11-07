@@ -1,0 +1,57 @@
+# Keyway production stack:  caddy (TLS, 80/443)  ->  web (Nuxt)  ->  api (FastAPI)  ->  volume (SQLite + media)
+# Usage:  cp deploy/production.env.example .env  &&  edit .env  &&  docker compose up -d --build
+name: keyway
+
+services:
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      KEYWAY_ENV: production
+      KEYWAY_SECRET_KEY: ${KEYWAY_SECRET_KEY:?set KEYWAY_SECRET_KEY in .env}
+      KEYWAY_CORS_ORIGINS: https://${DOMAIN:?set DOMAIN in .env}
+      KEYWAY_BOOTSTRAP_ADMIN_EMAIL: ${KEYWAY_BOOTSTRAP_ADMIN_EMAIL:-}
+      KEYWAY_BOOTSTRAP_ADMIN_PASSWORD: ${KEYWAY_BOOTSTRAP_ADMIN_PASSWORD:-}
+      KEYWAY_BOOTSTRAP_ADMIN_NAME: ${KEYWAY_BOOTSTRAP_ADMIN_NAME:-Administrator}
+      KEYWAY_LLM_ENABLED: ${KEYWAY_LLM_ENABLED:-false}
+      KEYWAY_WHATSAPP_MODE: ${KEYWAY_WHATSAPP_MODE:-SIMULATOR}
+      KEYWAY_WHATSAPP_ACCESS_TOKEN: ${KEYWAY_WHATSAPP_ACCESS_TOKEN:-}
+      KEYWAY_WHATSAPP_PHONE_NUMBER_ID: ${KEYWAY_WHATSAPP_PHONE_NUMBER_ID:-}
+      KEYWAY_WHATSAPP_WABA_ID: ${KEYWAY_WHATSAPP_WABA_ID:-}
+      KEYWAY_WHATSAPP_APP_SECRET: ${KEYWAY_WHATSAPP_APP_SECRET:-}
+      KEYWAY_WHATSAPP_VERIFY_TOKEN: ${KEYWAY_WHATSAPP_VERIFY_TOKEN:-}
+    volumes:
+      - keyway-data:/data
+    expose: ["8000"]
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    environment:
+      KEYWAY_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    expose: ["3000"]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [web]
+
+volumes:
+  keyway-data:
+  caddy-data:
+  caddy-config:

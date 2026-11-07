@@ -3,7 +3,8 @@
 # usage: daemon.sh <name> <workdir> <command...>
 NAME="$1"; shift
 WORKDIR="$1"; shift
-ZDIR="/home/z/my-project/.zscripts"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ZDIR="$ROOT/.zscripts"
 mkdir -p "$ZDIR"
 LOG="$ZDIR/daemon-$NAME.log"
 PIDFILE="$ZDIR/daemon-$NAME.pid"

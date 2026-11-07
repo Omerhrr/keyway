@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from app.core.db import get_db, utcnow
-from app.core.deps import require_staff, require_perm
+from app.core.deps import require_perm, require_any_perm
 from app.core.serialize import serialize
 from app.core.audit import audit
 from app.core.ids import next_ref
@@ -13,6 +13,24 @@ from app.modules.delivery_models import Rider, Delivery
 from app.modules.notify import notify
 
 router = APIRouter(prefix="/api/cod", tags=["cod"])
+require_cod_view = require_any_perm("cod.manage", "finance.manage", "reports.view", "dispatch.manage")
+COD_METHODS = ("CASH", "BANK_TRANSFER", "DIGITAL", "POS", "CARD", "OTHER")
+COLLECTABLE_ORDER_STATUSES = ("DISPATCHED", "IN_TRANSIT", "DELIVERED")
+
+
+def ensure_cod_pending(db, order, delivery_id=None, rider_id=None):
+    """A delivered COD order always gets a PENDING_VERIFICATION collection record, no
+    matter which endpoint marked it delivered. Delivery is never proof of cash."""
+    if order.payment_method != "COD":
+        return None
+    exists = db.query(CODCollection).filter(CODCollection.order_id == order.id).first()
+    if exists:
+        return exists
+    c = CODCollection(order_id=order.id, delivery_id=delivery_id, expected_kobo=order.cod_amount_kobo,
+                      collected_kobo=0, method="CASH", status="PENDING_VERIFICATION", rider_id=rider_id)
+    db.add(c)
+    db.flush()
+    return c
 
 
 class CollectionIn(BaseModel):
@@ -39,7 +57,7 @@ class HandoverConfirmIn(BaseModel):
 
 
 @router.get("/collections")
-def list_collections(user: User = Depends(require_staff), db: Session = Depends(get_db), status: str = ""):
+def list_collections(user: User = Depends(require_cod_view), db: Session = Depends(get_db), status: str = ""):
     query = (db.query(CODCollection, Order, Customer)
              .join(Order, Order.id == CODCollection.order_id)
              .join(Customer, Customer.id == Order.customer_id))
@@ -59,8 +77,16 @@ def record_collection(body: CollectionIn, user: User = Depends(require_perm("cod
         raise HTTPException(404, "Order not found")
     if o.payment_method != "COD":
         raise HTTPException(400, "Order is not a COD order")
+    if body.collected_kobo < 0:
+        raise HTTPException(400, "Collected amount cannot be negative")
+    if body.method not in COD_METHODS:
+        raise HTTPException(400, f"Unknown method. Valid: {', '.join(COD_METHODS)}")
+    if o.status not in COLLECTABLE_ORDER_STATUSES:
+        raise HTTPException(400, f"Cash cannot be collected for an order in status {o.status}")
+    if body.rider_id and not db.get(Rider, body.rider_id):
+        raise HTTPException(400, "Unknown rider")
     existing = db.query(CODCollection).filter(CODCollection.order_id == o.id).first()
-    if existing and existing.status == "VERIFIED":
+    if existing and (existing.verified_at is not None or existing.status == "VERIFIED"):
         raise HTTPException(400, "A verified collection already exists for this order")
     c = existing or CODCollection(order_id=o.id, expected_kobo=o.cod_amount_kobo)
     c.collected_kobo = body.collected_kobo
@@ -96,8 +122,12 @@ def update_collection(collection_id: int, body: UpdateIn, user: User = Depends(r
     c = db.get(CODCollection, collection_id)
     if not c:
         raise HTTPException(404, "Collection not found")
-    if c.status not in ("PENDING_VERIFICATION",):
+    if c.status not in ("PENDING_VERIFICATION",) or c.verified_at is not None:
         raise HTTPException(400, f"Cannot edit a {c.status} collection")
+    if body.collected_kobo < 0:
+        raise HTTPException(400, "Collected amount cannot be negative")
+    if body.method and body.method not in COD_METHODS:
+        raise HTTPException(400, f"Unknown method. Valid: {', '.join(COD_METHODS)}")
     c.collected_kobo = body.collected_kobo
     if body.method:
         c.method = body.method
@@ -113,8 +143,10 @@ def verify_collection(collection_id: int, body: VerifyIn, user: User = Depends(r
     c = db.get(CODCollection, collection_id)
     if not c:
         raise HTTPException(404, "Collection not found")
-    if c.status == "VERIFIED":
+    if c.verified_at is not None or c.status == "VERIFIED":
         raise HTTPException(400, "Already verified")
+    if c.status not in ("PENDING_VERIFICATION", "DISCREPANCY"):
+        raise HTTPException(400, f"Cannot verify a {c.status} collection")
     o = db.get(Order, c.order_id)
     discrepancy = c.expected_kobo - c.collected_kobo
     if discrepancy != 0 and not body.note.strip():
@@ -133,23 +165,28 @@ def verify_collection(collection_id: int, body: VerifyIn, user: User = Depends(r
     cod_account = get_account_by_subtype(db, "COD_CLEARING")
     payables = get_account_by_subtype(db, "VENDOR_PAYABLE")
     revenue = get_account_by_subtype(db, "LOGISTICS_REVENUE")
-    post_journal(db,
-                 memo=f"COD collection verified for {o.reference}",
-                 source_type="COD_COLLECTION", source_id=c.id,
-                 lines=[{"account_id": cod_account.id, "debit_kobo": c.collected_kobo},
-                        {"account_id": payables.id, "credit_kobo": c.collected_kobo, "vendor_id": o.vendor_id}],
-                 posted_by=user)
-    # Charge recognition: vendor payable is reduced by operator's earned charges
-    from app.modules.charges_models import Charge
-    charges = db.query(Charge).filter(Charge.order_id == o.id, Charge.status == "APPLIED").all()
-    total_charges = sum(ch.amount_kobo for ch in charges)
-    if total_charges > 0:
-        post_journal(db,
-                     memo=f"Logistics charge recognition for {o.reference}",
-                     source_type="CHARGE_RECOGNITION", source_id=o.id,
-                     lines=[{"account_id": payables.id, "debit_kobo": total_charges, "vendor_id": o.vendor_id},
-                            {"account_id": revenue.id, "credit_kobo": total_charges}],
-                     posted_by=user)
+    try:
+        if c.collected_kobo > 0:  # nothing collected -> nothing to journal (no zero-value entries)
+            post_journal(db,
+                         memo=f"COD collection verified for {o.reference}",
+                         source_type="COD_COLLECTION", source_id=c.id,
+                         lines=[{"account_id": cod_account.id, "debit_kobo": c.collected_kobo},
+                                {"account_id": payables.id, "credit_kobo": c.collected_kobo, "vendor_id": o.vendor_id}],
+                         posted_by=user)
+        # Charge recognition: vendor payable is reduced by operator's earned charges
+        from app.modules.charges_models import Charge
+        charges = db.query(Charge).filter(Charge.order_id == o.id, Charge.status == "APPLIED").all()
+        total_charges = sum(ch.amount_kobo for ch in charges)
+        if total_charges > 0:
+            post_journal(db,
+                         memo=f"Logistics charge recognition for {o.reference}",
+                         source_type="CHARGE_RECOGNITION", source_id=o.id,
+                         lines=[{"account_id": payables.id, "debit_kobo": total_charges, "vendor_id": o.vendor_id},
+                                {"account_id": revenue.id, "credit_kobo": total_charges}],
+                         posted_by=user)
+    except ValueError as ex:
+        db.rollback()
+        raise HTTPException(400, str(ex))
     db.commit()
     audit(db, user, "verify", "cod_collection", c.id,
           f"Collection verified for {o.reference}" + (f" with discrepancy {discrepancy}" if discrepancy else ""))
@@ -162,6 +199,8 @@ def flag_collection(collection_id: int, body: VerifyIn, user: User = Depends(req
     c = db.get(CODCollection, collection_id)
     if not c:
         raise HTTPException(404, "Collection not found")
+    if c.verified_at is not None or c.status not in ("PENDING_VERIFICATION", "DISCREPANCY"):
+        raise HTTPException(400, f"Cannot flag a {c.status} collection")
     c.status = "DISCREPANCY"
     c.discrepancy_kobo = c.expected_kobo - c.collected_kobo
     c.note = (c.note + " | " if c.note else "") + f"Flagged: {body.note}"
@@ -170,7 +209,7 @@ def flag_collection(collection_id: int, body: VerifyIn, user: User = Depends(req
 
 
 @router.get("/handovers")
-def list_handovers(user: User = Depends(require_staff), db: Session = Depends(get_db)):
+def list_handovers(user: User = Depends(require_cod_view), db: Session = Depends(get_db)):
     rows = db.query(CashHandover).order_by(CashHandover.id.desc()).limit(100).all()
     riders = {r.id: r.full_name for r in db.query(Rider).all()}
     return [serialize(h, rider_name=riders.get(h.rider_id)) for h in rows]
@@ -178,6 +217,10 @@ def list_handovers(user: User = Depends(require_staff), db: Session = Depends(ge
 
 @router.post("/handovers")
 def create_handover(body: HandoverIn, user: User = Depends(require_perm("cod.manage")), db: Session = Depends(get_db)):
+    if body.amount_expected_kobo < 0:
+        raise HTTPException(400, "Expected amount cannot be negative")
+    if body.rider_id and not db.get(Rider, body.rider_id):
+        raise HTTPException(400, "Unknown rider")
     h = CashHandover(reference="PENDING", rider_id=body.rider_id, user_id=user.id,
                      amount_expected_kobo=body.amount_expected_kobo, note=body.note,
                      handed_at=utcnow(), status="PENDING")
@@ -201,6 +244,10 @@ def confirm_handover(handover_id: int, body: HandoverConfirmIn, user: User = Dep
     h = db.get(CashHandover, handover_id)
     if not h:
         raise HTTPException(404, "Handover not found")
+    if body.amount_counted_kobo < 0:
+        raise HTTPException(400, "Counted amount cannot be negative")
+    if h.status == "CONFIRMED":
+        raise HTTPException(400, "Handover already confirmed")
     h.amount_counted_kobo = body.amount_counted_kobo
     diff = h.amount_expected_kobo - body.amount_counted_kobo
     h.status = "CONFIRMED" if diff == 0 else "DISCREPANCY"

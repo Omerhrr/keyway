@@ -7,9 +7,10 @@ from app.core.db import get_db
 from app.core.deps import require_staff, require_perm, get_vendor_user
 from app.core.serialize import serialize, serialize_list
 from app.core.audit import audit
+from app.core.csvsafe import csv_safe
 from app.modules.identity_models import User
 from app.modules.catalog_models import Product, ProductVariant, ProductAlias
-from app.modules.inventory_models import InventoryBalance
+from app.modules.inventory_models import InventoryBalance, InventoryMovement
 from sqlalchemy import func
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
@@ -25,6 +26,32 @@ class ProductIn(BaseModel):
     default_sell_price_kobo: int = 0
     reorder_level: int = 5
     status: str = "ACTIVE"
+
+
+class ProductPatch(BaseModel):
+    sku: str | None = None
+    name: str | None = None
+    description: str | None = None
+    category: str | None = None
+    unit: str | None = None
+    default_sell_price_kobo: int | None = None
+    reorder_level: int | None = None
+    status: str | None = None
+
+
+PRODUCT_STATUSES = ("ACTIVE", "INACTIVE", "ARCHIVED")
+
+
+def _check_product_fields(d: dict):
+    if d.get("default_sell_price_kobo") is not None and d["default_sell_price_kobo"] < 0:
+        raise HTTPException(400, "Price cannot be negative")
+    if d.get("reorder_level") is not None and d["reorder_level"] < 0:
+        raise HTTPException(400, "Reorder level cannot be negative")
+    if d.get("status") is not None and d["status"] not in PRODUCT_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(PRODUCT_STATUSES)}")
+    for f in ("sku", "name"):
+        if f in d and not (d[f] or "").strip():
+            raise HTTPException(400, f"{f} cannot be empty")
 
 
 class VariantIn(BaseModel):
@@ -88,6 +115,10 @@ def list_products(user: User = Depends(require_staff), db: Session = Depends(get
 
 @router.post("/products")
 def create_product(body: ProductIn, user: User = Depends(require_perm("catalog.manage")), db: Session = Depends(get_db)):
+    from app.modules.vendors_models import Vendor
+    if not db.get(Vendor, body.vendor_id):
+        raise HTTPException(404, "Vendor not found")
+    _check_product_fields(body.model_dump())
     dup = db.query(Product).filter(Product.vendor_id == body.vendor_id, Product.sku == body.sku).first()
     if dup:
         raise HTTPException(400, "SKU already exists for this vendor")
@@ -112,11 +143,17 @@ def get_product(product_id: int, user: User = Depends(require_staff), db: Sessio
 
 
 @router.patch("/products/{product_id}")
-def update_product(product_id: int, body: ProductIn, user: User = Depends(require_perm("catalog.manage")), db: Session = Depends(get_db)):
+def update_product(product_id: int, body: ProductPatch, user: User = Depends(require_perm("catalog.manage")), db: Session = Depends(get_db)):
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    _check_product_fields(data)
+    if "sku" in data and data["sku"] != p.sku:
+        if db.query(Product).filter(Product.vendor_id == p.vendor_id, Product.sku == data["sku"],
+                                    Product.id != p.id).first():
+            raise HTTPException(400, "SKU already exists for this vendor")
+    for k, v in data.items():
         setattr(p, k, v)
     db.commit()
     audit(db, user, "update", "product", p.id, f"Updated product {p.name}")
@@ -129,6 +166,13 @@ def add_variant(product_id: int, body: VariantIn, user: User = Depends(require_p
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
+    if not body.sku.strip():
+        raise HTTPException(400, "Variant SKU is required")
+    if body.sell_price_kobo is not None and body.sell_price_kobo < 0:
+        raise HTTPException(400, "Price cannot be negative")
+    if db.query(ProductVariant).filter(ProductVariant.product_id == product_id,
+                                       ProductVariant.sku == body.sku).first():
+        raise HTTPException(400, "A variant with this SKU already exists for the product")
     v = ProductVariant(product_id=product_id, **body.model_dump())
     db.add(v)
     db.commit()
@@ -140,6 +184,12 @@ def add_alias(product_id: int, body: AliasIn, user: User = Depends(require_perm(
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
+    if not body.alias.strip():
+        raise HTTPException(400, "Alias is required")
+    if body.variant_id:
+        pv = db.get(ProductVariant, body.variant_id)
+        if not pv or pv.product_id != p.id:
+            raise HTTPException(400, "Variant does not belong to this product")
     a = ProductAlias(vendor_id=p.vendor_id, product_id=product_id, **body.model_dump())
     db.add(a)
     db.commit()
@@ -228,7 +278,8 @@ async def import_catalog(vendor_id: int, file: UploadFile = File(...),
     if not rows:
         raise HTTPException(400, "No data rows found")
 
-    warehouse = db.query(Warehouse).order_by(Warehouse.id).first()
+    warehouse = (db.query(Warehouse).filter(Warehouse.is_default.is_(True), Warehouse.is_active.is_(True)).first()
+                 or db.query(Warehouse).filter(Warehouse.is_active.is_(True)).order_by(Warehouse.id).first())
     created = updated = alias_count = stock_rows = 0
     errors: list[str] = []
     for i, row in enumerate(rows, start=2):  # start=2: row 1 is the header
@@ -242,15 +293,22 @@ async def import_catalog(vendor_id: int, file: UploadFile = File(...),
         if not name:
             errors.append(f"Row {i}: missing name - skipped")
             continue
-        sell = _to_int(row.get("sell_price") or row.get("price") or row.get("default_sell_price")) * 100
-        reorder = _to_int(row.get("reorder_level"), 5)
-        opening = _to_int(row.get("opening_stock") or row.get("qty") or row.get("stock"), 0)
+        raw_sell = row.get("sell_price") or row.get("price") or row.get("default_sell_price")
+        try:
+            sell = max(0, int(round(float(str(raw_sell).replace(",", "").replace("\u20a6", "").strip() or 0) * 100)))
+        except (TypeError, ValueError):
+            errors.append(f"Row {i}: unreadable price '{raw_sell}' - price left unchanged")
+            sell = 0
+        has_reorder = str(row.get("reorder_level", "")).strip() != ""
+        reorder = max(0, _to_int(row.get("reorder_level"), 5))
+        opening = max(0, _to_int(row.get("opening_stock") or row.get("qty") or row.get("stock"), 0))
         category = str(row.get("category") or "").strip()
         p = db.query(Product).filter(Product.vendor_id == vendor_id, Product.sku == sku).first()
         if p:
             p.name, p.category = name, category or p.category
             p.default_sell_price_kobo = sell or p.default_sell_price_kobo
-            p.reorder_level = reorder
+            if has_reorder:  # a missing column must not reset a tuned reorder level
+                p.reorder_level = reorder
             updated += 1
         else:
             p = Product(vendor_id=vendor_id, sku=sku, name=name, category=category,
@@ -273,11 +331,17 @@ async def import_catalog(vendor_id: int, file: UploadFile = File(...),
                    .filter(InventoryBalance.product_id == p.id, InventoryBalance.variant_id == 0,
                            InventoryBalance.warehouse_id == warehouse.id).first())
             if bal:
-                bal.qty_physical = opening
+                # Existing stock is never overwritten by a re-import (use Adjust / Receipts for that).
+                errors.append(f"Row {i}: {sku} already has stock records - opening_stock ignored")
             else:
                 db.add(InventoryBalance(product_id=p.id, variant_id=0, warehouse_id=warehouse.id,
                                         location_id=0, qty_physical=opening))
-            stock_rows += 1
+                db.add(InventoryMovement(product_id=p.id, variant_id=0, warehouse_id=warehouse.id,
+                                         movement_type="RECEIVE", qty=opening,
+                                         reason="Opening stock from catalog import",
+                                         ref_type="catalog_import", ref_id=str(vendor_id),
+                                         actor_user_id=user.id))
+                stock_rows += 1
     db.commit()
     audit(db, user, "import", "catalog", vendor_id,
           f"Catalog import for {vendor.name}: {created} created, {updated} updated, "
@@ -301,7 +365,7 @@ def export_catalog(vendor_id: int = 0, user: User = Depends(require_staff),
     w.writerow(["sku", "name", "category", "aliases", "sell_price", "reorder_level", "status"])
     for p in q.order_by(Product.vendor_id, Product.name).all():
         aliases = "|".join(a.alias for a in db.query(ProductAlias).filter(ProductAlias.product_id == p.id).all())
-        w.writerow([p.sku, p.name, p.category, aliases,
+        w.writerow([csv_safe(p.sku), csv_safe(p.name), csv_safe(p.category), csv_safe(aliases),
                     (p.default_sell_price_kobo or 0) / 100, p.reorder_level, p.status])
     buf.seek(0)
     return Response(buf.getvalue(), media_type="text/csv",

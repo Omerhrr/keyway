@@ -58,9 +58,9 @@ def graph_base(creds: dict) -> str:
 def verify_signature(raw_body: bytes, header: str | None, app_secret: str) -> bool:
     """Meta signs every webhook POST with HMAC-SHA256 over the raw body."""
     if not app_secret:
-        # No secret configured (dev/simulator): accept but log loudly.
-        log.warning("WhatsApp webhook accepted without app secret (KEYWAY_WHATSAPP_APP_SECRET unset)")
-        return True
+        # Fail closed: an unsigned webhook would let anyone on the internet inject orders.
+        log.error("WhatsApp webhook rejected: KEYWAY_WHATSAPP_APP_SECRET is not configured")
+        return False
     if not header or not header.startswith("sha256="):
         return False
     expected = hmac.new(app_secret.encode(), raw_body, hashlib.sha256).hexdigest()

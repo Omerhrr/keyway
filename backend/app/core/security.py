@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 import jwt
 from passlib.context import CryptContext
@@ -30,12 +31,19 @@ def _token(sub: str, kind: str, expires_delta: timedelta, extra: dict | None = N
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
 
+def pwd_fingerprint(password_hash: str) -> str:
+    """Short, non-reversible marker of the current password. Embedded in tokens so
+    that changing a password (or an admin reset) immediately invalidates every
+    token issued before it."""
+    return hashlib.sha256((password_hash or "").encode()).hexdigest()[:12]
+
+
 def create_access_token(user_id: int, extra: dict | None = None) -> str:
     return _token(str(user_id), "access", timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES), extra)
 
 
-def create_refresh_token(user_id: int) -> str:
-    return _token(str(user_id), "refresh", timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS))
+def create_refresh_token(user_id: int, extra: dict | None = None) -> str:
+    return _token(str(user_id), "refresh", timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS), extra)
 
 
 def decode_token(token: str, expected_type: str = "access") -> dict:
