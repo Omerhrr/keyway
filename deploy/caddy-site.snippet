@@ -1,0 +1,14 @@
+# Add this block to the EXISTING Caddyfile (the one booklet-caddy-1 loads), then reload Caddy.
+keyway.rogan.live {
+	encode zstd gzip
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+	request_body {
+		max_size 12MB
+	}
+	reverse_proxy keyway-web:3000
+}

@@ -1,24 +1,28 @@
 # Deploying Keyway on a VPS with Docker (keyway.rogan.live)
 
-Stack: **Caddy** (automatic HTTPS) -> **web** (Nuxt) -> **api** (FastAPI) -> Docker volume (SQLite + media).
-Only ports 80/443 are exposed; the API is never published.
+Stack: existing **Caddy** (HTTPS) -> **keyway-web** (Nuxt) -> **keyway-api** (FastAPI) -> Docker volume (SQLite + media).
+Nothing is published on host ports; the API is never on the shared network.
 
-## 1. One-time server setup
-1. Point a DNS **A record** `keyway.rogan.live` -> the VPS public IP (wait for it to resolve).
-2. Install Docker + the compose plugin (Ubuntu: `curl -fsSL https://get.docker.com | sh`).
-3. Open the firewall: `ufw allow 22,80,443/tcp && ufw allow 443/udp && ufw enable`.
-4. `git clone <your-github-repo> /opt/keyway && cd /opt/keyway`
-5. `cp deploy/production.env.example .env` and fill in:
-   - `KEYWAY_SECRET_KEY` -> `python3 -c "import secrets;print(secrets.token_urlsafe(48))"`
-   - `KEYWAY_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` (>= 12 chars) - creates the first admin on the empty DB.
-6. `docker compose up -d --build`
-7. Open https://keyway.rogan.live and sign in with the bootstrap admin. Change the password.
-   After the first login you may blank the two `BOOTSTRAP_ADMIN_*` values in `.env`.
+## 1. Shared-VPS setup (an existing Caddy owns ports 80/443)
+This server already runs other stacks, so Keyway does NOT run its own proxy. It joins the network of the
+existing Caddy (`booklet-caddy-1`) and that Caddy serves `keyway.rogan.live`.
+1. DNS: `keyway.rogan.live` -> this server (already resolving; if Cloudflare proxy is on, use SSL mode Full).
+2. `cd /opt/keyway && git pull`
+3. Find the proxy network:
+   `docker inspect booklet-caddy-1 -f '{{json .NetworkSettings.Networks}}'` and the Caddyfile it loads:
+   `docker inspect booklet-caddy-1 -f '{{json .Mounts}}'`
+4. `cp deploy/production.env.example .env`; set `PROXY_NETWORK` (that network's name), `KEYWAY_SECRET_KEY`
+   (`python3 -c "import secrets;print(secrets.token_urlsafe(48))"`) and the bootstrap admin email/password.
+5. `docker compose up -d --build` and check `docker compose ps` (both healthy).
+6. Append `deploy/caddy-site.snippet` to the existing Caddyfile, then reload:
+   `docker exec booklet-caddy-1 caddy reload --config /etc/caddy/Caddyfile`
+7. Open https://keyway.rogan.live, sign in with the bootstrap admin, change the password; afterwards blank
+   the two `BOOTSTRAP_ADMIN_*` values in `.env`.
 
 ## 2. Updating (push to GitHub, pull on the VPS)
 ```
 cd /opt/keyway && git pull && docker compose up -d --build
-docker compose logs -f --tail=50 api
+docker compose logs -f --tail=50 keyway-api
 ```
 Data lives in the `keyway-data` volume and survives rebuilds.
 
@@ -36,6 +40,5 @@ Callback URL: `https://keyway.rogan.live/api/whatsapp/webhook`. Set the `KEYWAY_
 - `KEYWAY_LLM_ENABLED=false`: the AI extraction micro-service (`mini-services/llm-service`) is not in this
   stack; order parsing uses the built-in rules. It depends on a sandbox-specific SDK.
 - One API worker by design (SQLite, in-memory login throttle). Move to Postgres + migrations before scaling.
-- Troubleshooting: `docker compose ps`, `docker compose logs caddy` (certificate issues are almost always DNS
-  or closed ports), `docker compose logs api`. A boot error about SECRET_KEY / bootstrap admin means `.env` is
+- Troubleshooting: `docker compose ps`, `docker logs booklet-caddy-1` (certificate issues are almost always DNS), `docker compose logs keyway-api`. A boot error about SECRET_KEY / bootstrap admin means `.env` is
   incomplete.

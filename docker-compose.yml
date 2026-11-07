@@ -1,9 +1,11 @@
-# Keyway production stack:  caddy (TLS, 80/443)  ->  web (Nuxt)  ->  api (FastAPI)  ->  volume (SQLite + media)
+# Keyway production stack (shared-VPS mode): an EXISTING reverse proxy (booklet-caddy-1) owns 80/443
+# and terminates TLS. This stack only runs  keyway-web (Nuxt) -> keyway-api (FastAPI) -> volume.
 # Usage:  cp deploy/production.env.example .env  &&  edit .env  &&  docker compose up -d --build
+# Service names are prefixed (keyway-*) because the proxy network is shared with other stacks.
 name: keyway
 
 services:
-  api:
+  keyway-api:
     build: ./backend
     restart: unless-stopped
     environment:
@@ -22,36 +24,25 @@ services:
       KEYWAY_WHATSAPP_VERIFY_TOKEN: ${KEYWAY_WHATSAPP_VERIFY_TOKEN:-}
     volumes:
       - keyway-data:/data
-    expose: ["8000"]
+    networks: [internal]          # never attached to the shared proxy network
 
-  web:
+  keyway-web:
     build:
       context: .
       dockerfile: Dockerfile.web
     restart: unless-stopped
     environment:
-      KEYWAY_API_URL: http://api:8000
+      KEYWAY_API_URL: http://keyway-api:8000
     depends_on:
-      api:
+      keyway-api:
         condition: service_healthy
-    expose: ["3000"]
+    networks: [internal, proxy]   # the proxy reaches it as keyway-web:3000
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    environment:
-      DOMAIN: ${DOMAIN}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on: [web]
+networks:
+  internal:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?set PROXY_NETWORK in .env (docker network the existing Caddy is on)}
 
 volumes:
   keyway-data:
-  caddy-data:
-  caddy-config:
