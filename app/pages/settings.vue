@@ -12,6 +12,7 @@ const allTabs = [
   { label: 'Appearance', value: 'appearance', icon: 'i-lucide-palette' },
   { label: 'Features', value: 'modules', icon: 'i-lucide-toggle-right' },
   { label: 'Printed documents', value: 'documents', icon: 'i-lucide-file-text' },
+  { label: 'Install app', value: 'install', icon: 'i-lucide-download' },
 ]
 
 const tabs = computed(() => allTabs.filter((t) => t.value !== 'whatsapp' || on('whatsapp')))
@@ -306,6 +307,7 @@ function copyWebhook() {
 
     <SettingsAppearance v-if="tab === 'appearance'" />
     <SettingsDocuments v-else-if="tab === 'documents'" />
+    <SettingsInstall v-else-if="tab === 'install'" />
     <SettingsModules v-else-if="tab === 'modules'" />
     <SettingsRoles v-else-if="tab === 'roles'" @changed="load" />
 
