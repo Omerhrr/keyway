@@ -424,7 +424,8 @@ def vendor_record(vendor_id: int, date_from: str = "", date_to: str = "",
         b = db.query(func.coalesce(func.sum(InventoryBalance.qty_physical), 0),
                      func.coalesce(func.sum(InventoryBalance.qty_reserved), 0),
                      func.coalesce(func.sum(InventoryBalance.qty_damaged), 0)).filter(InventoryBalance.product_id == p.id).one()
-        stock.append({"name": p.name, "sku": p.sku, "price_kobo": p.default_sell_price_kobo,
+        stock.append({"id": p.id, "name": p.name, "sku": p.sku, "price_kobo": p.default_sell_price_kobo,
+                      "reorder_level": p.reorder_level, "status": p.status,
                       "physical": int(b[0]), "reserved": int(b[1]), "damaged": int(b[2]), "available": int(b[0]) - int(b[1])})
 
     return {"vendor": serialize(v), "period": {"from": date_from, "to": date_to},

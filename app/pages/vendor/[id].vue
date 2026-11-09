@@ -2,6 +2,10 @@
 const route = useRoute()
 const { printRecord, exportExcel } = useDocs()
 const { needs } = useGuard()
+const warehouses = ref<any[]>([])
+const showReceive = ref(false)
+const showAddProduct = ref(false)
+const receiveProduct = ref(0)
 const id = route.params.id
 const rec = ref<any>(null)
 const detail = ref<any>(null)
@@ -25,6 +29,7 @@ async function load() {
     if (to.value) p.set('date_to', to.value)
     const [r, d] = await Promise.all([api(`/vendors/${id}/record?${p}`), api(`/vendors/${id}`)])
     rec.value = r; detail.value = d
+    if (!warehouses.value.length) warehouses.value = (await api('/inventory/warehouses').catch(() => [])).filter((w: any) => w.is_active)
   } catch (e) { loadError.value = errMsg(e) } finally { loading.value = false }
 }
 onMounted(load)
@@ -47,7 +52,10 @@ const stlRows = computed(() => (rec.value?.settlements || []).map((x: any) => ({
   ...x, when: fmtDate(x.date), orders_text: (x.orders || []).join(', ') || '-',
   gross: fmtNaira(x.gross_kobo), charges: fmtNaira(x.charges_kobo), net: fmtNaira(x.net_kobo), paid: fmtNaira(x.paid_kobo),
 })))
-const stockRows = computed(() => (rec.value?.stock || []).map((x: any) => ({ ...x, price: fmtNaira(x.price_kobo) })))
+const stockRows = computed(() => (rec.value?.stock || []).map((x: any) => ({ ...x, price: fmtNaira(x.price_kobo), low: x.available <= x.reorder_level })))
+const lowCount = computed(() => stockRows.value.filter((x: any) => x.low).length)
+const initials = computed(() => (v.value.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w: string) => w[0]).join('').toUpperCase())
+function receiveMore(productId = 0) { receiveProduct.value = productId; showReceive.value = true }
 
 const v = computed(() => rec.value?.vendor || {})
 const fileTitle = computed(() => `${v.value.name || 'Vendor'} statement`)
@@ -97,9 +105,13 @@ async function excelPayments() {
     `${v.value.name} · ${periodText.value}`)
 }
 const exportItems = computed(() => [[
+  { label: 'Print statement (PDF)', icon: 'i-lucide-printer', onSelect: printStatement },
   { label: 'Sales, line by line (Excel)', icon: 'i-lucide-file-spreadsheet', onSelect: excelSales },
   { label: 'Payments made (Excel)', icon: 'i-lucide-file-spreadsheet', onSelect: excelPayments },
 ]])
+const moreItems = computed(() => [[paused.value
+  ? { label: 'Reactivate vendor', icon: 'i-lucide-play', onSelect: () => setStatus('ACTIVE') }
+  : { label: 'Suspend vendor', icon: 'i-lucide-pause', color: 'error' as const, onSelect: () => { confirmPause.value = true } }]])
 
 const confirmPause = ref(false)
 const pausing = ref(false)
@@ -136,44 +148,81 @@ async function addContact() {
     </div>
 
     <template v-else-if="rec">
-      <div class="flex items-center gap-2 mb-1">
-        <UButton to="/vendors" icon="i-lucide-arrow-left" color="neutral" variant="ghost" size="xs" aria-label="Back to vendors" />
-        <h1 class="text-xl sm:text-2xl font-bold">{{ v.name }}</h1>
-        <StatusBadge :status="v.status" />
+      <UButton to="/vendors" icon="i-lucide-arrow-left" color="neutral" variant="link" size="xs" class="mb-2 -ml-2">All vendors</UButton>
+
+      <!-- identity + actions -->
+      <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-gradient-to-br from-primary-50 via-white to-white dark:from-primary-950/40 dark:via-zinc-900 dark:to-zinc-900 p-4 sm:p-5 mb-4">
+        <div class="flex flex-wrap items-start gap-4">
+          <div class="w-14 h-14 rounded-2xl bg-primary-600 text-white grid place-items-center text-xl font-bold shrink-0 shadow-sm">{{ initials }}</div>
+          <div class="min-w-0 flex-1 basis-56">
+            <div class="flex flex-wrap items-center gap-2">
+              <h1 class="text-xl sm:text-2xl font-bold leading-tight">{{ v.name }}</h1>
+              <StatusBadge :status="v.status" />
+            </div>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-sm text-zinc-500">
+              <span class="font-mono">{{ v.code }}</span>
+              <span v-if="v.city" class="inline-flex items-center gap-1"><UIcon name="i-lucide-map-pin" class="w-3.5 h-3.5" />{{ [v.city, v.state].filter(Boolean).join(', ') }}</span>
+              <span v-if="v.phone" class="inline-flex items-center gap-1"><UIcon name="i-lucide-phone" class="w-3.5 h-3.5" />{{ v.phone }}</span>
+              <span v-if="v.email" class="inline-flex items-center gap-1"><UIcon name="i-lucide-mail" class="w-3.5 h-3.5" />{{ v.email }}</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <UButton icon="i-lucide-package-plus" :disabled="paused" @click="receiveMore()">Receive stock</UButton>
+            <UButton icon="i-lucide-sparkles" color="neutral" variant="outline" :disabled="paused" @click="showAddProduct = true">Add product</UButton>
+            <UDropdownMenu :items="exportItems">
+              <UButton icon="i-lucide-file-text" color="neutral" variant="outline" trailing-icon="i-lucide-chevron-down">Statement</UButton>
+            </UDropdownMenu>
+            <UDropdownMenu :items="moreItems">
+              <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" aria-label="More actions" />
+            </UDropdownMenu>
+          </div>
+        </div>
       </div>
-      <p class="text-sm text-zinc-500 mb-4 ml-9">{{ v.code }}<template v-if="v.city"> · {{ v.city }}</template><template v-if="v.email"> · {{ v.email }}</template><template v-if="v.phone"> · {{ v.phone }}</template></p>
 
       <UAlert v-if="paused" class="mb-4" color="warning" variant="subtle" icon="i-lucide-pause-circle"
               :title="`${v.name} is ${titleize(v.status).toLowerCase()}`"
               description="Paused until you reactivate: new orders, new products, stock receipts and transfers, WhatsApp orders and portal sign-in. Orders already on the way, money owed and all history stay as they are." />
 
-      <div class="flex flex-wrap items-end gap-2 mb-4">
-        <UFormField label="From"><UInput v-model="from" type="date" class="w-40" /></UFormField>
-        <UFormField label="To"><UInput v-model="to" type="date" class="w-40" /></UFormField>
-        <UButton variant="soft" @click="load">Show</UButton>
-        <UButton v-if="from || to" variant="ghost" color="neutral" @click="clearDates">All time</UButton>
-        <div class="flex-1" />
-        <UButton icon="i-lucide-printer" color="neutral" variant="outline" @click="printStatement">Print statement (PDF)</UButton>
-        <UDropdownMenu :items="exportItems">
-          <UButton icon="i-lucide-file-spreadsheet" color="neutral" variant="outline" trailing-icon="i-lucide-chevron-down">Export Excel</UButton>
-        </UDropdownMenu>
-        <UButton v-if="!paused" icon="i-lucide-pause" color="error" variant="ghost" @click="confirmPause = true">Suspend vendor</UButton>
-        <UButton v-else icon="i-lucide-play" @click="setStatus('ACTIVE')">Reactivate vendor</UButton>
+      <!-- period -->
+      <div class="flex flex-wrap items-end gap-2 mb-3">
+        <div class="mr-auto">
+          <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Showing</p>
+          <p class="text-sm font-medium">{{ periodText }}</p>
+        </div>
+        <div class="flex items-end gap-2 w-full sm:w-auto">
+          <UFormField label="From" class="flex-1 sm:flex-none"><UInput v-model="from" type="date" size="sm" class="w-full sm:w-36" /></UFormField>
+          <UFormField label="To" class="flex-1 sm:flex-none"><UInput v-model="to" type="date" size="sm" class="w-full sm:w-36" /></UFormField>
+          <UButton size="sm" variant="soft" @click="load">Show</UButton>
+          <UButton v-if="from || to" size="sm" variant="ghost" color="neutral" @click="clearDates">All time</UButton>
+        </div>
       </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-3">
-        <StatCard label="Delivered orders" :value="s.delivered" icon="i-lucide-package-check" tone="success" :sub="`${s.open} still open`" />
-        <StatCard label="Units sold" :value="s.units_sold" icon="i-lucide-shopping-bag" />
-        <StatCard label="Sales after discounts" :value="fmtNaira(s.sales_kobo)" icon="i-lucide-receipt" tone="primary" />
-        <StatCard label="Offers and discounts given" :value="fmtNaira(s.offers_kobo)" icon="i-lucide-badge-percent" tone="warning" />
-        <StatCard label="Free gifts" :value="s.gift_units" icon="i-lucide-gift" :sub="`worth ${fmtNaira(s.gift_value_kobo)}`" />
+      <!-- the money, as a sum that adds up -->
+      <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 sm:p-4 mb-3">
+        <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-3">The money</p>
+        <div class="grid grid-cols-2 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr_auto_1fr] gap-x-2 gap-y-3 items-center">
+          <div><p class="text-xs text-zinc-500">Collected from customers</p><p class="text-lg sm:text-xl font-bold tabular-nums">{{ fmtNaira(s.collected_kobo) }}</p><p class="text-[11px] text-zinc-400">includes delivery fees</p></div>
+          <span class="hidden lg:block text-zinc-300 text-xl">−</span>
+          <div><p class="text-xs text-zinc-500">Our charges</p><p class="text-lg sm:text-xl font-bold tabular-nums text-amber-600">{{ fmtNaira(s.charges_kobo) }}</p></div>
+          <span class="hidden lg:block text-zinc-300 text-xl">=</span>
+          <div><p class="text-xs text-zinc-500">Earned by vendor</p><p class="text-lg sm:text-xl font-bold tabular-nums">{{ fmtNaira(s.earned_kobo) }}</p></div>
+          <span class="hidden lg:block text-zinc-300 text-xl">−</span>
+          <div><p class="text-xs text-zinc-500">Paid to vendor</p><p class="text-lg sm:text-xl font-bold tabular-nums text-emerald-600">{{ fmtNaira(s.paid_out_kobo) }}</p></div>
+          <span class="hidden lg:block text-zinc-300 text-xl">=</span>
+          <div class="rounded-xl px-3 py-2 col-span-2 lg:col-span-1" :class="s.balance_kobo > 0 ? 'bg-primary-50 dark:bg-primary-950/40' : 'bg-zinc-50 dark:bg-zinc-800/60'">
+            <p class="text-xs text-zinc-500">Still owed to vendor</p>
+            <p class="text-lg sm:text-xl font-bold tabular-nums" :class="s.balance_kobo > 0 ? 'text-primary-700 dark:text-primary-400' : ''">{{ fmtNaira(s.balance_kobo) }}</p>
+          </div>
+        </div>
       </div>
-      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 mb-5">
-        <StatCard label="Cash collected from customers" :value="fmtNaira(s.collected_kobo)" icon="i-lucide-hand-coins" sub="includes delivery fees" />
-        <StatCard label="Our charges" :value="fmtNaira(s.charges_kobo)" icon="i-lucide-scissors" tone="warning" />
-        <StatCard label="Earned by vendor" :value="fmtNaira(s.earned_kobo)" icon="i-lucide-wallet" />
-        <StatCard label="Paid to vendor" :value="fmtNaira(s.paid_out_kobo)" icon="i-lucide-banknote" tone="success" />
-        <StatCard label="Balance still owed" :value="fmtNaira(s.balance_kobo)" icon="i-lucide-hourglass" tone="primary" />
+
+      <!-- sales numbers -->
+      <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-5 grid grid-cols-2 sm:grid-cols-5 divide-zinc-100 dark:divide-zinc-800 sm:divide-x">
+        <div class="p-3 sm:p-4"><p class="text-xs text-zinc-500">Delivered orders</p><p class="text-xl font-bold">{{ s.delivered }}</p><p class="text-[11px] text-zinc-400">{{ s.open }} still open</p></div>
+        <div class="p-3 sm:p-4"><p class="text-xs text-zinc-500">Units sold</p><p class="text-xl font-bold">{{ s.units_sold }}</p></div>
+        <div class="p-3 sm:p-4"><p class="text-xs text-zinc-500">Sales after discounts</p><p class="text-xl font-bold tabular-nums">{{ fmtNaira(s.sales_kobo) }}</p></div>
+        <div class="p-3 sm:p-4"><p class="text-xs text-zinc-500">Discounts given</p><p class="text-xl font-bold tabular-nums">{{ fmtNaira(s.offers_kobo) }}</p></div>
+        <div class="p-3 sm:p-4 col-span-2 sm:col-span-1"><p class="text-xs text-zinc-500">Free gifts</p><p class="text-xl font-bold">{{ s.gift_units }}</p><p class="text-[11px] text-zinc-400">worth {{ fmtNaira(s.gift_value_kobo) }}</p></div>
       </div>
 
       <ScrollTabs :items="tabs" v-model="tab" class="mb-4" />
@@ -222,15 +271,37 @@ async function addContact() {
         </DataTable>
       </template>
 
-      <DataTable v-else-if="tab === 'stock'" :export-title="`${v.name} stock`" :columns="[
-        { key: 'name', label: 'Product' },
-        { key: 'sku', label: 'Code' },
-        { key: 'price', label: 'Price', align: 'right' },
-        { key: 'physical', label: 'In warehouse', align: 'right' },
-        { key: 'reserved', label: 'Promised to orders', align: 'right' },
-        { key: 'damaged', label: 'Damaged', align: 'right' },
-        { key: 'available', label: 'Free to sell', align: 'right' },
-      ]" :rows="stockRows" empty-title="No products yet" />
+      <template v-else-if="tab === 'stock'">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <p class="text-sm text-zinc-500 mr-auto">
+            {{ stockRows.length }} product{{ stockRows.length === 1 ? '' : 's' }}
+            <template v-if="lowCount"> · <span class="text-amber-600 font-medium">{{ lowCount }} running low</span></template>
+          </p>
+          <UButton size="sm" icon="i-lucide-package-plus" :disabled="paused" @click="receiveMore()">Receive stock</UButton>
+          <UButton size="sm" icon="i-lucide-sparkles" color="neutral" variant="outline" :disabled="paused" @click="showAddProduct = true">Add product</UButton>
+        </div>
+        <DataTable :export-title="`${v.name} stock`" :columns="[
+          { key: 'name', label: 'Product' },
+          { key: 'price', label: 'Price', align: 'right' },
+          { key: 'physical', label: 'In warehouse', align: 'right' },
+          { key: 'reserved', label: 'Promised to orders', align: 'right' },
+          { key: 'damaged', label: 'Damaged', align: 'right' },
+          { key: 'available', label: 'Free to sell', align: 'right' },
+          { key: 'actions', label: '' },
+        ]" :rows="stockRows" empty-title="No products yet" empty-hint="Add the first product, then receive stock against it.">
+          <template #name="{ row }">
+            <p class="font-medium">{{ row.name }}</p>
+            <p class="text-[11px] text-zinc-400 font-mono">{{ row.sku }}</p>
+          </template>
+          <template #available="{ row }">
+            <span :class="row.low ? 'text-amber-600 font-semibold' : ''">{{ row.available }}</span>
+            <UBadge v-if="row.low" color="warning" variant="subtle" size="xs" class="ml-1.5">Low</UBadge>
+          </template>
+          <template #actions="{ row }">
+            <UButton size="xs" variant="soft" icon="i-lucide-plus" :disabled="paused" @click.stop="receiveMore(row.id)">Receive</UButton>
+          </template>
+        </DataTable>
+      </template>
 
       <div v-else-if="tab === 'contacts'" class="max-w-2xl space-y-4">
         <p class="font-semibold text-sm">Authorized contacts and WhatsApp numbers</p>
@@ -258,6 +329,9 @@ async function addContact() {
         </div>
       </div>
     </template>
+
+    <ReceiveStock v-model:open="showReceive" :vendors="rec ? [v] : []" :warehouses="warehouses" :vendor-id="Number(id)" :product-id="receiveProduct" @done="load" />
+    <QuickProduct v-model:open="showAddProduct" :vendors="rec ? [v] : []" :vendor-id="Number(id)" @created="load" />
 
     <UModal v-model:open="confirmPause" title="Suspend this vendor?" :ui="{ content: 'max-w-md' }">
       <template #body>

@@ -63,64 +63,9 @@ async function adjust() {
   } finally { saving.value = false }
 }
 
-// receipt modal
-const { needs } = useGuard()
+// receipt + quick product (shared components)
 const showReceipt = ref(false)
 const showQuickProduct = ref(false)
-const rcForm = reactive({ vendor_id: 0, warehouse_id: 0, batch_ref: '' })
-const rcLines = ref<{ product_id: number; qty: string; damaged: string }[]>([{ product_id: 0, qty: '', damaged: '' }])
-const rcProducts = ref<any[]>([])
-
-function openReceipt() {
-  Object.assign(rcForm, { vendor_id: 0, warehouse_id: warehouses.value.length === 1 ? warehouses.value[0].id : 0, batch_ref: '' })
-  rcLines.value = [{ product_id: 0, qty: '', damaged: '' }]
-  rcProducts.value = []
-  showReceipt.value = true
-}
-async function loadRcProducts() {
-  rcProducts.value = rcForm.vendor_id ? await api(`/catalog/products?vendor_id=${rcForm.vendor_id}`).catch(() => []) : []
-}
-async function onRcVendor() {
-  rcLines.value = [{ product_id: 0, qty: '', damaged: '' }]
-  await loadRcProducts()
-}
-async function onProductAdded(p: any) {
-  if (!showReceipt.value) { await load(); return }
-  await loadRcProducts()
-  const empty = rcLines.value.find(l => !l.product_id)
-  if (empty) empty.product_id = p.id
-  else rcLines.value.push({ product_id: p.id, qty: '', damaged: '' })
-}
-function openQuickProduct() { showQuickProduct.value = true }
-async function createReceipt() {
-  const filled = rcLines.value.filter(l => l.product_id || l.qty)
-  const checks: [string, any][] = [['Vendor', rcForm.vendor_id], ['Warehouse', rcForm.warehouse_id]]
-  if (!filled.length) checks.push(['At least one product', ''])
-  filled.forEach((l, i) => {
-    const name = rcProducts.value.find(p => p.id === l.product_id)?.name
-    const tag = filled.length > 1 ? ` (line ${i + 1})` : ''
-    checks.push([`Product${tag}`, l.product_id])
-    checks.push([`Quantity received${name ? ' for ' + name : tag}`, Number(l.qty) > 0])
-  })
-  if (!needs(checks)) return
-  saving.value = true
-  try {
-    const r = await api('/inventory/receipts', {
-      method: 'POST',
-      body: {
-        vendor_id: rcForm.vendor_id, warehouse_id: rcForm.warehouse_id, batch_ref: rcForm.batch_ref,
-        lines: filled.map(l => ({ product_id: l.product_id, expected_qty: Number(l.qty) + (Number(l.damaged) || 0),
-                                  received_qty: Number(l.qty), damaged_qty: Number(l.damaged) || 0 })),
-      },
-    })
-    await api(`/inventory/receipts/${r.id}/confirm`, { method: 'POST' })
-    useToast().add({ title: `Stock received (${r.reference})`, color: 'success' })
-    showReceipt.value = false
-    await load()
-  } catch (e) {
-    useToast().add({ title: 'Could not receive the stock', description: errMsg(e), color: 'error' })
-  } finally { saving.value = false }
-}
 
 // ---- multi-warehouse transfers ----
 const showTransfer = ref(false)
@@ -207,9 +152,9 @@ async function cancelTransfer(t: any) {
     <PageHeader title="Inventory & Warehouse" subtitle="Each vendor's stock across your warehouses. Every movement is recorded and changes need a reason.">
       <template #actions>
         <UButton v-if="canOpen('/catalog')" to="/catalog" icon="i-lucide-book-open" variant="ghost" color="neutral">Product catalog</UButton>
-        <UButton icon="i-lucide-sparkles" variant="soft" color="neutral" @click="showQuickProduct = true; rcForm.vendor_id = 0">Add product</UButton>
+        <UButton icon="i-lucide-sparkles" variant="soft" color="neutral" @click="showQuickProduct = true">Add product</UButton>
         <UButton icon="i-lucide-arrow-right-left" variant="soft" color="neutral" @click="openTransfer">Transfer stock</UButton>
-        <UButton icon="i-lucide-package-plus" @click="openReceipt">Receive stock</UButton>
+        <UButton icon="i-lucide-package-plus" @click="showReceipt = true">Receive stock</UButton>
       </template>
     </PageHeader>
 
@@ -368,47 +313,7 @@ async function cancelTransfer(t: any) {
       </template>
     </UModal>
 
-    <!-- receipt modal -->
-    <UModal v-model:open="showReceipt" title="Receive stock" :ui="{ content: 'max-w-2xl' }">
-      <template #body>
-        <div class="grid sm:grid-cols-2 gap-3">
-          <UFormField label="Vendor">
-            <USelect placeholder="Choose..." @update:model-value="(v: any) => { rcForm.vendor_id = v; onRcVendor() }" :model-value="rcForm.vendor_id || undefined" class="w-full" :items="vendors.filter(v => v.status === 'ACTIVE').map(v => ({ label: v.name, value: v.id }))" />
-          </UFormField>
-          <UFormField label="Warehouse">
-            <USelect placeholder="Choose..." @update:model-value="(v: any) => { rcForm.warehouse_id = v }" :model-value="rcForm.warehouse_id || undefined" class="w-full" :items="warehouses.map(w => ({ label: w.name, value: w.id }))" />
-          </UFormField>
-          <UFormField label="Batch / shipment ref (optional)" class="sm:col-span-2" help="Leave empty and the receipt number is used"><UInput v-model="rcForm.batch_ref" class="w-full" /></UFormField>
-        </div>
-
-        <div class="flex items-center justify-between mt-5 mb-2">
-          <p class="text-sm font-semibold">Products received</p>
-          <div class="flex gap-2">
-            <UButton size="xs" variant="soft" icon="i-lucide-sparkles" @click="needs([['Vendor', rcForm.vendor_id]]) && openQuickProduct()">New product</UButton>
-            <UButton size="xs" variant="soft" color="neutral" icon="i-lucide-plus" @click="rcLines.push({ product_id: 0, qty: '', damaged: '' })">Add line</UButton>
-          </div>
-        </div>
-        <div class="space-y-2">
-          <div v-for="(l, i) in rcLines" :key="i" class="grid grid-cols-[1fr_5rem_5rem_2rem] gap-2 items-end">
-            <UFormField :label="i === 0 ? 'Product' : undefined">
-              <USelect placeholder="Choose..." :model-value="l.product_id || undefined" class="w-full"
-                       :items="rcProducts.map(p => ({ label: `${p.name} (${p.sku})`, value: p.id }))" @update:model-value="(v: any) => l.product_id = v" />
-            </UFormField>
-            <UFormField :label="i === 0 ? 'Received' : undefined"><UInput v-model="l.qty" type="number" min="1" class="w-full" /></UFormField>
-            <UFormField :label="i === 0 ? 'Damaged' : undefined"><UInput v-model="l.damaged" type="number" min="0" placeholder="0" class="w-full" /></UFormField>
-            <UButton v-if="rcLines.length > 1" icon="i-lucide-x" size="xs" color="neutral" variant="ghost" aria-label="Remove line" @click="rcLines.splice(i, 1)" />
-            <span v-else />
-          </div>
-        </div>
-      </template>
-      <template #footer>
-        <div class="flex justify-end gap-2 w-full">
-          <UButton variant="ghost" color="neutral" @click="showReceipt = false">Cancel</UButton>
-          <UButton :loading="saving" @click="createReceipt">Receive & confirm</UButton>
-        </div>
-      </template>
-    </UModal>
-
-    <QuickProduct v-model:open="showQuickProduct" :vendor-id="rcForm.vendor_id || undefined" :vendors="vendors.filter(v => v.status === 'ACTIVE')" @created="onProductAdded" />
+    <ReceiveStock v-model:open="showReceipt" :vendors="vendors" :warehouses="warehouses" @done="load" />
+    <QuickProduct v-model:open="showQuickProduct" :vendors="vendors.filter(v => v.status === 'ACTIVE')" @created="load" />
   </div>
 </template>
