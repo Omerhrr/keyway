@@ -5,12 +5,45 @@ const loadError = ref('')
 const user = useAuth().user
 const { canOpen } = useModules()
 
+const riderMode = computed(() => !canOpen('/orders') && !canOpen('/dispatch'))
+const jobs = ref<any[]>([])
+const busy = ref<number | null>(null)
+const failFor = ref<number | null>(null)
+const failReason = ref('')
+const jobMsg = ref('')
+
+async function loadJobs() {
+  jobs.value = await api('/dispatch/assignments/me')
+}
+async function report(j: any, to: string) {
+  if (to === 'FAILED' && !failReason.value.trim()) { jobMsg.value = 'Tell us why the delivery failed.'; return }
+  busy.value = j.id; jobMsg.value = ''
+  try {
+    await api(`/dispatch/assignments/${j.id}/status`, { method: 'POST', body: { to_status: to, failure_reason: failReason.value } })
+    failFor.value = null; failReason.value = ''
+    await loadJobs()
+  } catch (e) { jobMsg.value = errMsg(e) } finally { busy.value = null }
+}
+
 async function load() {
   loading.value = true
   loadError.value = ''
-  try { d.value = await api('/dashboard') } catch (e) { loadError.value = errMsg(e) } finally { loading.value = false }
+  try {
+    if (riderMode.value) await loadJobs()
+    else d.value = await api('/dashboard')
+  } catch (e) { loadError.value = errMsg(e) } finally { loading.value = false }
 }
-onMounted(load)
+let timer: any
+onMounted(() => {
+  load()
+  timer = setInterval(() => { if (!document.hidden) silent() }, 30000)
+  document.addEventListener('visibilitychange', silent)
+})
+onBeforeUnmount(() => { clearInterval(timer); document.removeEventListener('visibilitychange', silent) })
+async function silent() {
+  if (document.hidden || loading.value) return
+  try { if (riderMode.value) await loadJobs(); else d.value = await api('/dashboard') } catch {}
+}
 
 const maxStatus = computed(() => Math.max(1, ...Object.values(d.value?.orders_by_status || {}) as number[]))
 const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}).map(([s, c]) => ({ status: s, count: c })))
@@ -35,6 +68,32 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
       <UButton variant="outline" color="neutral" icon="i-lucide-refresh-cw" @click="load">Try again</UButton>
     </div>
 
+    <div v-else-if="riderMode" class="max-w-xl space-y-3">
+      <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">My deliveries ({{ jobs.length }})</p>
+      <p v-if="!jobs.length" class="text-sm text-zinc-500 py-10 text-center">Nothing assigned to you right now.</p>
+      <UAlert v-if="jobMsg" color="error" variant="subtle" :title="jobMsg" />
+      <UCard v-for="j in jobs" :key="j.id">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="font-semibold">{{ j.customer_name }}</p>
+            <p class="text-xs text-zinc-500">Order {{ j.order_reference }}</p>
+          </div>
+          <UBadge v-if="j.cod_expected" color="warning" variant="subtle">Collect {{ fmtNaira(j.cod_expected) }}</UBadge>
+          <UBadge v-else color="success" variant="subtle">Prepaid</UBadge>
+        </div>
+        <p class="text-sm mt-2">{{ j.address }}</p>
+        <div class="flex gap-2 mt-3">
+          <UButton v-if="j.customer_phone" :to="`tel:${j.customer_phone}`" icon="i-lucide-phone" color="neutral" variant="outline" size="sm">Call</UButton>
+          <UButton icon="i-lucide-package-check" size="sm" :loading="busy === j.id" @click="report(j, 'DELIVERED')">Delivered</UButton>
+          <UButton icon="i-lucide-package-x" size="sm" color="error" variant="soft" @click="failFor = failFor === j.id ? null : j.id">Failed</UButton>
+        </div>
+        <div v-if="failFor === j.id" class="mt-3 space-y-2">
+          <UInput v-model="failReason" placeholder="Why could it not be delivered?" class="w-full" />
+          <UButton size="sm" color="error" :loading="busy === j.id" @click="report(j, 'FAILED')">Confirm failed</UButton>
+        </div>
+      </UCard>
+    </div>
+
     <template v-else-if="d">
       <!-- Today -->
       <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Today</p>
@@ -51,7 +110,7 @@ const statusRows = computed(() => Object.entries(d.value?.orders_by_status || {}
       <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 mb-2">Work in progress</p>
       <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
         <StatCard v-if="canOpen('/orders')" label="Awaiting processing" :value="d.awaiting_processing" icon="i-lucide-clock" tone="warning" to="/orders" />
-        <StatCard v-if="canOpen('/confirmations')" label="Awaiting customer" :value="d.awaiting_customer_confirmation" icon="i-lucide-phone-call" to="/confirmations" />
+        <StatCard v-if="canOpen('/confirmations')" :label="d.follow_ups_due ? `Awaiting customer (${d.follow_ups_due} to call now)` : 'Awaiting customer'" :value="d.awaiting_customer_confirmation" icon="i-lucide-phone-call" to="/confirmations" />
         <StatCard v-if="canOpen('/dispatch')" label="Ready for dispatch" :value="d.ready_for_dispatch" icon="i-lucide-package-open" to="/dispatch" />
         <StatCard v-if="canOpen('/dispatch')" label="In transit" :value="d.in_transit" icon="i-lucide-truck" tone="primary" to="/dispatch" />
         <StatCard v-if="canOpen('/cod')" label="Pending COD" :value="d.pending_cod_collections" icon="i-lucide-hand-coins" tone="warning" to="/cod" />

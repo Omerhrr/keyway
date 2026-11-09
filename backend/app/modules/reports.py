@@ -49,6 +49,10 @@ def dashboard(user: User = Depends(require_dashboard), db: Session = Depends(get
     orders_today = count(Order, Order.created_at >= today)
     awaiting_processing = count(Order, Order.status.in_(["CONFIRMED", "PROCESSING", "CUSTOMER_CONFIRMED"]))
     awaiting_customer = count(Order, Order.status == "PENDING_CUSTOMER_CONFIRMATION")
+    from app.modules.orders_models import CustomerConfirmation as CC
+    follow_ups_due = (db.query(func.count(Order.id)).join(CC, CC.order_id == Order.id)
+                      .filter(Order.status == "PENDING_CUSTOMER_CONFIRMATION", CC.next_action_at.isnot(None),
+                              CC.next_action_at <= utcnow()).scalar() or 0)
     ready_dispatch = count(Order, Order.status == "READY_FOR_DISPATCH")
     in_transit = count(Order, Order.status.in_(["DISPATCHED", "IN_TRANSIT", "OUT_FOR_DELIVERY"]))
     delivered_today = count(Order, Order.status == "DELIVERED", Order.delivered_at >= today)
@@ -62,7 +66,7 @@ def dashboard(user: User = Depends(require_dashboard), db: Session = Depends(get
     unassigned_senders = count(Conversation, Conversation.vendor_id.is_(None),
                                Conversation.status.in_(["NEW", "OPEN", "WAITING_FOR_STAFF"]))
     confirmation_queue = (db.query(func.count(Order.id))
-                          .filter(Order.status.in_(["CONFIRMED", "PENDING_CUSTOMER_CONFIRMATION"])).scalar() or 0)
+                          .filter(Order.status.in_(["CONFIRMED", "PENDING_CUSTOMER_CONFIRMATION", "PROCESSING"])).scalar() or 0)
 
     # Inventory value at sell price + low stock alerts (vendor-owned stock)
     value = 0
@@ -112,6 +116,7 @@ def dashboard(user: User = Depends(require_dashboard), db: Session = Depends(get
         "awaiting_customer_confirmation": awaiting_customer,
         "ready_for_dispatch": ready_dispatch,
         "in_transit": in_transit,
+        "follow_ups_due": follow_ups_due,
         "delivered_today": delivered_today,
         "failed_deliveries": failed,
         "pending_cod_collections": pending_cod,

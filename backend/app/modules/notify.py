@@ -169,7 +169,7 @@ def run_automation_checks(db) -> dict:
             continue
         db.add(Notification(channel="IN_APP", user_id=None, event_type="ORDER_UNCONFIRMED",
                             title=f"Order {o.reference} awaiting confirmation",
-                            body="Customer confirmation is still pending - follow up with the customer.",
+                            body="Customer confirmation is still pending (not reachable or not around) - follow up with the customer.",
                             entity_type="order", entity_id=str(o.id), dedup_key=key))
         created["ORDER_UNCONFIRMED"] += 1
 

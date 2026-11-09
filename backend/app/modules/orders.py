@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -37,7 +37,7 @@ TRANSITIONS: dict[str, list[str]] = {
     "PENDING_CUSTOMER_CONFIRMATION": ["CUSTOMER_CONFIRMED", "CANCELLED"],
     "CUSTOMER_CONFIRMED": ["PROCESSING", "READY_FOR_DISPATCH", "CANCELLED"],
     "PROCESSING": ["READY_FOR_DISPATCH", "PENDING_CUSTOMER_CONFIRMATION", "CANCELLED"],
-    "READY_FOR_DISPATCH": ["DISPATCHED", "CANCELLED"],
+    "READY_FOR_DISPATCH": ["DISPATCHED", "IN_TRANSIT", "DELIVERED", "CANCELLED"],
     "DISPATCHED": ["IN_TRANSIT", "DELIVERED", "DELIVERY_FAILED", "RETURN_REQUESTED"],
     "IN_TRANSIT": ["DELIVERED", "DELIVERY_FAILED", "RETURN_REQUESTED"],
     "DELIVERED": ["RETURN_REQUESTED"],
@@ -97,7 +97,7 @@ class DraftEditIn(BaseModel):
 
 
 PAYMENT_METHODS = ("COD", "PREPAID", "TRANSFER", "POS")
-ATTEMPT_OUTCOMES = ("CALL_ATTEMPTED", "NO_ANSWER", "INVALID_PHONE_NUMBER", "CUSTOMER_CONFIRMED",
+ATTEMPT_OUTCOMES = ("CALL_ATTEMPTED", "NO_ANSWER", "PHONE_SWITCHED_OFF", "CUSTOMER_AWAY", "INVALID_PHONE_NUMBER", "CUSTOMER_CONFIRMED",
                     "CUSTOMER_REJECTED", "CUSTOMER_REQUESTED_RESCHEDULE", "ADDRESS_NEEDS_CORRECTION")
 ATTEMPT_ALLOWED_ORDER_STATUSES = ("CONFIRMED", "PENDING_CUSTOMER_CONFIRMATION", "PROCESSING")
 
@@ -116,6 +116,7 @@ class AssignIn(BaseModel):
 class AttemptIn(BaseModel):
     outcome: str
     note: str = ""
+    follow_up_date: str | None = None   # YYYY-MM-DD: when to call again / when the customer will collect
 
 
 class OutcomeIn(BaseModel):
@@ -679,6 +680,9 @@ def confirmation_queue(user: User = Depends(require_staff), db: Session = Depend
     return [serialize(o, customer_name=c.name, customer_phone=c.phone, vendor_name=v.name,
                       confirmation_status=(cf.status if cf else "NOT_STARTED"),
                       attempts=(cf.attempts_count if cf else 0),
+                      follow_up_at=(cf.next_action_at.isoformat() if cf and cf.next_action_at else None),
+                      follow_up_due=bool(cf and cf.next_action_at and cf.next_action_at <= utcnow()),
+                      last_note=(cf.outcome_note if cf else ""),
                       items_total=o.items_total_kobo, cod=o.cod_amount_kobo)
             for o, c, cf, v in rows]
 
@@ -701,7 +705,28 @@ def record_attempt(order_id: int, body: AttemptIn, user: User = Depends(require_
     cf.agent_user_id = user.id
     attempt_no = cf.attempts_count
     cf.status = body.outcome if body.outcome in (
-        "CALL_ATTEMPTED", "NO_ANSWER", "INVALID_PHONE_NUMBER") else cf.status
+        "CALL_ATTEMPTED", "NO_ANSWER", "INVALID_PHONE_NUMBER", "PHONE_SWITCHED_OFF", "CUSTOMER_AWAY") else cf.status
+    if body.outcome in ("NO_ANSWER", "PHONE_SWITCHED_OFF", "CUSTOMER_AWAY"):
+        # Park the order as "pending customer confirmation" until the next follow-up.
+        when = None
+        if body.follow_up_date:
+            try:
+                when = datetime.strptime(body.follow_up_date[:10], "%Y-%m-%d").replace(hour=8)
+            except ValueError:
+                raise HTTPException(400, "follow_up_date must be YYYY-MM-DD")
+        if body.outcome == "CUSTOMER_AWAY" and not when:
+            raise HTTPException(400, "Pick the date the customer will be back / ready to receive")
+        if when and when < utcnow() - timedelta(days=1):
+            raise HTTPException(400, "Follow-up date is in the past")
+        cf.next_action_at = when or (utcnow() + timedelta(hours=4 if body.outcome == "NO_ANSWER" else 6))
+        if o.status in ("CONFIRMED", "PROCESSING"):
+            label = {"NO_ANSWER": "Customer not picking calls", "PHONE_SWITCHED_OFF": "Customer phone switched off",
+                     "CUSTOMER_AWAY": "Customer not around"}[body.outcome]
+            add_event(db, o, "CONFIRMATION", from_status=o.status, to_status="PENDING_CUSTOMER_CONFIRMATION",
+                      actor=user, note=f"{label}; follow up {cf.next_action_at:%d %b}" + (f" - {body.note}" if body.note else ""))
+            o.status = "PENDING_CUSTOMER_CONFIRMATION"
+    elif body.outcome in ("CUSTOMER_CONFIRMED", "CUSTOMER_REJECTED"):
+        cf.next_action_at = None
     if body.outcome == "CUSTOMER_CONFIRMED":
         cf.status = "CUSTOMER_CONFIRMED"
         cf.confirmed_at = utcnow()
