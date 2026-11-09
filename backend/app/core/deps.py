@@ -77,4 +77,8 @@ def get_vendor_user(db: Session = Depends(get_db), user: User = Depends(get_curr
     """Vendor portal user; guarantees vendor-level data isolation."""
     if not user.is_vendor or not user.vendor_id:
         raise HTTPException(status_code=403, detail="Vendor account required")
+    from app.modules.vendors_models import Vendor
+    v = db.get(Vendor, user.vendor_id)
+    if v and v.status != "ACTIVE":
+        raise HTTPException(status_code=403, detail="This vendor account is paused. Please contact the company.")
     return user

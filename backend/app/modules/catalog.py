@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
 class ProductIn(BaseModel):
     vendor_id: int
-    sku: str
+    sku: str = ""
     name: str
     description: str = ""
     category: str = ""
@@ -55,7 +55,7 @@ def _check_product_fields(d: dict):
 
 
 class VariantIn(BaseModel):
-    sku: str
+    sku: str = ""
     name: str = ""
     barcode: str = ""
     attributes: dict = {}
@@ -83,6 +83,8 @@ def _with_stock(db: Session, products: list[Product], variant_breakdown=False) -
                 key = (b.product_id, b.variant_id)
                 vt = variants.setdefault(key, 0)
                 vt += b.qty_physical - b.qty_reserved
+    from app.modules.vendors_models import Vendor as _V
+    vstat = {v.id: v.status for v in db.query(_V).filter(_V.id.in_({p.vendor_id for p in products} or {0})).all()}
     out = []
     for p in products:
         a = agg.get(p.id, {"physical": 0, "reserved": 0, "damaged": 0})
@@ -90,7 +92,7 @@ def _with_stock(db: Session, products: list[Product], variant_breakdown=False) -
         out.append(serialize(
             p,
             qty_physical=a["physical"], qty_reserved=a["reserved"], qty_damaged=a["damaged"],
-            qty_available=a["physical"] - a["reserved"],
+            qty_available=a["physical"] - a["reserved"], vendor_status=vstat.get(p.vendor_id, "ACTIVE"),
             low_stock=(a["physical"] - a["reserved"]) <= p.reorder_level,
             variants=serialize_list(vs) if variant_breakdown else [],
         ))
@@ -118,6 +120,11 @@ def create_product(body: ProductIn, user: User = Depends(require_perm("catalog.m
     from app.modules.vendors_models import Vendor
     if not db.get(Vendor, body.vendor_id):
         raise HTTPException(404, "Vendor not found")
+    from app.core.vendorguard import require_active_vendor
+    require_active_vendor(db, body.vendor_id, "add products")
+    from app.core.codes import next_code, product_prefix
+    body.sku = body.sku.strip() or next_code(db, Product, "sku", product_prefix(body.name),
+                                             vendor_id=body.vendor_id)
     _check_product_fields(body.model_dump())
     dup = db.query(Product).filter(Product.vendor_id == body.vendor_id, Product.sku == body.sku).first()
     if dup:
@@ -166,8 +173,11 @@ def add_variant(product_id: int, body: VariantIn, user: User = Depends(require_p
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
+    from app.core.vendorguard import require_active_vendor
+    require_active_vendor(db, p.vendor_id, "add variants")
     if not body.sku.strip():
-        raise HTTPException(400, "Variant SKU is required")
+        from app.core.codes import next_code
+        body.sku = next_code(db, ProductVariant, "sku", p.sku, width=2, product_id=product_id)
     if body.sell_price_kobo is not None and body.sell_price_kobo < 0:
         raise HTTPException(400, "Price cannot be negative")
     if db.query(ProductVariant).filter(ProductVariant.product_id == product_id,
@@ -266,6 +276,8 @@ async def import_catalog(vendor_id: int, file: UploadFile = File(...),
     vendor = db.get(Vendor, vendor_id)
     if not vendor:
         raise HTTPException(404, "Vendor not found")
+    from app.core.vendorguard import require_active_vendor
+    require_active_vendor(db, vendor_id, "import products")
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 5MB)")

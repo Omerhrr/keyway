@@ -54,6 +54,9 @@ class ManualOrderItem(BaseModel):
     variant_id: int = 0
     qty: int = 1
     unit_price_kobo: int | None = None
+    line_total_kobo: int | None = None  # bundle price for the whole line, e.g. 2 books for 50
+    discount_kobo: int = 0               # money off this line
+    is_gift: bool = False                # free item added to the order
 
 
 class ManualOrderIn(BaseModel):
@@ -69,6 +72,9 @@ class ManualOrderIn(BaseModel):
     instructions: str = ""
     payment_method: str = "COD"
     warehouse_id: int | None = None  # optional fulfilment override (multi-warehouse)
+    discount_kobo: int = 0           # money off the whole order
+    discount_percent: float = 0      # or a percentage off the whole order
+    discount_note: str = ""
     items: list[ManualOrderItem]
 
 
@@ -446,8 +452,9 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
     vendor = db.get(Vendor, body.vendor_id)
     if not vendor:
         raise HTTPException(404, "Vendor not found")
+    from app.core.vendorguard import vendor_pause_message
     if vendor.status != "ACTIVE":
-        raise HTTPException(400, "Vendor account is not active")
+        raise HTTPException(400, vendor_pause_message(vendor, "create orders"))
     if not body.items:
         raise HTTPException(400, "At least one item is required")
     if not normalize_phone(body.customer_phone) or len(normalize_phone(body.customer_phone)) < 10:
@@ -461,6 +468,10 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
             raise HTTPException(400, "Item quantity must be at least 1")
         if it.unit_price_kobo is not None and it.unit_price_kobo <= 0:
             raise HTTPException(400, "Unit price must be positive")
+        if min(it.discount_kobo, it.line_total_kobo if it.line_total_kobo is not None else 0) < 0:
+            raise HTTPException(400, "Discounts and bundle prices cannot be negative")
+    if body.discount_kobo < 0 or not (0 <= body.discount_percent <= 100):
+        raise HTTPException(400, "Order discount must be a positive amount or a percentage up to 100")
     if body.warehouse_id:
         wh = db.get(Warehouse, body.warehouse_id)
         if not wh or not wh.is_active:
@@ -481,10 +492,27 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
             if not pv or pv.product_id != p.id:
                 raise HTTPException(400, f"Variant {it.variant_id} does not belong to {p.name}")
         price = it.unit_price_kobo if it.unit_price_kobo is not None else (p.default_sell_price_kobo or 0)
-        if price <= 0:
+        if price <= 0 and not it.is_gift:
             raise HTTPException(400, f"No price for {p.name}. Set a price on the product first.")
-        total += price * it.qty
-        prepared.append((p, it, price))
+        gross = price * it.qty
+        if it.is_gift:
+            line_total = 0
+        elif it.line_total_kobo is not None:
+            if it.line_total_kobo > gross:
+                raise HTTPException(400, f"The bundle price for {p.name} is higher than the normal price. Change the unit price instead.")
+            line_total = it.line_total_kobo
+        else:
+            if it.discount_kobo > gross:
+                raise HTTPException(400, f"The discount on {p.name} is more than the item costs")
+            line_total = gross - it.discount_kobo
+        total += line_total
+        prepared.append((p, it, price, gross, line_total))
+    if total <= 0:
+        raise HTTPException(400, "An order needs at least one item that is not free")
+    order_discount = body.discount_kobo or int(round(total * body.discount_percent / 100))
+    if order_discount > total:
+        raise HTTPException(400, "The order discount is more than the order total")
+    total -= order_discount
     cod_amount = total if body.payment_method == "COD" else 0
     order = Order(reference="PENDING", vendor_id=vendor.id, customer_id=customer.id,
                   warehouse_id=warehouse.id, status="CONFIRMED", payment_method=body.payment_method,
@@ -492,16 +520,20 @@ def create_manual_order(body: ManualOrderIn, user: User = Depends(require_perm("
                   delivery_area=body.delivery_area, delivery_street=body.delivery_street,
                   delivery_landmark=body.delivery_landmark, instructions=body.instructions,
                   items_total_kobo=total, cod_amount_kobo=cod_amount,
+                  discount_kobo=order_discount, discount_note=body.discount_note.strip()[:255],
                   created_by_user_id=user.id, confirmed_at=utcnow())
     db.add(order)
     db.flush()
     order.reference = next_ref(db, Order, "reference", "KW")
-    for p, it, price in prepared:
+    for p, it, price, gross, line_total in prepared:
         db.add(OrderItem(order_id=order.id, product_id=p.id, variant_id=it.variant_id or 0,
-                         name_snapshot=p.name, sku_snapshot=p.sku, qty=it.qty,
-                         unit_price_kobo=price, line_total_kobo=price * it.qty, price_source="MANUAL"))
+                         name_snapshot=p.name + (" (free gift)" if it.is_gift else ""), sku_snapshot=p.sku, qty=it.qty,
+                         unit_price_kobo=price, line_total_kobo=line_total, discount_kobo=gross - line_total,
+                         is_gift=it.is_gift, price_source="MANUAL"))
         reserve_stock(db, order.id, p.id, it.variant_id or 0, warehouse.id, it.qty, user)
-    add_event(db, order, "CREATED", to_status="CONFIRMED", actor=user, note="Manual entry by staff")
+    saved = sum(i[3] - i[4] for i in prepared) + order_discount
+    add_event(db, order, "CREATED", to_status="CONFIRMED", actor=user,
+              note="Manual entry by staff" + (f", customer saves ₦{saved / 100:,.0f}" if saved else ""))
     notify(db, event_type="ORDER_CREATED", title=f"New order {order.reference}",
            body=f"Manual order for {vendor.name}", vendor_id=vendor.id, entity_type="order", entity_id=order.id)
     audit(db, user, "create", "order", order.id, f"Manual order {order.reference} created")

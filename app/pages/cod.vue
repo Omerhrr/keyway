@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { needs } = useGuard()
 const collections = ref<any[]>([])
 const handovers = ref<any[]>([])
 const loading = ref(true)
@@ -182,7 +183,7 @@ async function confirmHandover(h: any) {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showRecord = false">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!form.order_id" @click="record">Record</UButton>
+          <UButton :loading="saving" @click="needs([['Order', form.order_id]]) && record()">Record</UButton>
         </div>
       </template>
     </UModal>

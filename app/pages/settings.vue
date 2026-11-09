@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { needs } = useGuard()
 const { can } = useAuth()
 const tab = ref('users')
 const { on } = useModules()
@@ -45,12 +46,14 @@ async function load() {
 onMounted(load)
 
 const showUser = ref(false)
-const form = reactive({ full_name: '', email: '', password: '', role_id: 0, warehouse_id: 0 })
+const form = reactive({ full_name: '', email: '', password: '', role_id: 0, warehouse_id: 0, kind: 'STAFF', vendor_id: 0 })
 async function createUser() {
   saving.value = true
   try {
-    await api('/users', { method: 'POST', body: { ...form, role_id: form.role_id || null, warehouse_id: form.warehouse_id || null } })
-    useToast().add({ title: 'Staff account created', color: 'success' })
+    const vendor = form.kind === 'VENDOR'
+    const { kind, ...rest } = form
+    await api('/users', { method: 'POST', body: { ...rest, is_vendor: vendor, vendor_id: vendor ? form.vendor_id : null, role_id: vendor ? null : (form.role_id || null), warehouse_id: vendor ? null : (form.warehouse_id || null) } })
+    useToast().add({ title: vendor ? 'Vendor portal account created' : 'Staff account created', color: 'success' })
     showUser.value = false
     await load()
   } catch (e) {
@@ -314,7 +317,7 @@ function copyWebhook() {
     <!-- USERS -->
     <template v-else-if="tab === 'users'">
       <div class="mb-3">
-        <UButton icon="i-lucide-user-plus" @click="showUser = true">Add staff</UButton>
+        <UButton icon="i-lucide-user-plus" @click="showUser = true">Add account</UButton>
       </div>
       <DataTable :columns="[
         { key: 'full_name', label: 'Name' },
@@ -506,16 +509,22 @@ function copyWebhook() {
     </template>
 
     <!-- new user modal -->
-    <UModal v-model:open="showUser" title="Add staff account">
+    <UModal v-model:open="showUser" title="Add an account">
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Full name"><UInput v-model="form.full_name" class="w-full" /></UFormField>
           <UFormField label="Email"><UInput v-model="form.email" type="email" class="w-full" /></UFormField>
           <UFormField label="Password"><UInput v-model="form.password" type="password" class="w-full" /></UFormField>
-          <UFormField label="Role">
+ <UFormField label="Account type" class="sm:col-span-2" help="Vendor portal accounts only ever see that one vendor's own orders, stock and statements">
+            <USelect v-model="form.kind" class="w-full" :items="[{ label: 'Staff (works for us)', value: 'STAFF' }, { label: 'Vendor portal (works for a vendor)', value: 'VENDOR' }]" />
+          </UFormField>
+          <UFormField v-if="form.kind === 'VENDOR'" label="Vendor" class="sm:col-span-2">
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.vendor_id = v }" :model-value="form.vendor_id || undefined" class="w-full" :items="(vendorsList || []).filter(v => v.status === 'ACTIVE').map(v => ({ label: v.name, value: v.id }))" />
+          </UFormField>
+          <UFormField v-if="form.kind !== 'VENDOR'" label="Role">
             <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.role_id = v }" :model-value="form.role_id || undefined" class="w-full" :items="(roles?.roles || []).map(r => ({ label: r.name, value: r.id }))" />
           </UFormField>
-          <UFormField label="Home warehouse" help="Preselects this branch when the user creates orders or filters inventory" class="sm:col-span-2">
+          <UFormField v-if="form.kind !== 'VENDOR'" label="Home warehouse" help="Preselects this branch when the user creates orders or filters inventory" class="sm:col-span-2">
             <USelect v-model="form.warehouse_id" class="w-full" :items="[{ label: 'No home warehouse', value: 0 }, ...warehouses.filter(w => w.is_active).map(w => ({ label: w.name, value: w.id }))]" />
           </UFormField>
         </div>
@@ -523,7 +532,7 @@ function copyWebhook() {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showUser = false">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!form.email || !form.password" @click="createUser">Create</UButton>
+          <UButton :loading="saving" @click="needs([['Full name', form.full_name], ['Email', form.email], ['Password', form.password], ['Role', form.kind === 'VENDOR' || form.role_id], ['Vendor', form.kind !== 'VENDOR' || form.vendor_id]]) && createUser()">Create</UButton>
         </div>
       </template>
     </UModal>
@@ -584,7 +593,7 @@ function copyWebhook() {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showNRule = false">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!nForm.name || (nForm.target_scope === 'ROLE' && !nForm.role_name) || (nForm.target_scope === 'USER' && !nForm.user_id)" @click="createNRule">Create</UButton>
+          <UButton :loading="saving" @click="needs([['Rule name', nForm.name], ['Role', nForm.target_scope !== 'ROLE' || nForm.role_name], ['Person', nForm.target_scope !== 'USER' || nForm.user_id]]) && createNRule()">Create</UButton>
         </div>
       </template>
     </UModal>
@@ -593,8 +602,8 @@ function copyWebhook() {
     <UModal v-model:open="showWh" title="New warehouse">
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
-          <UFormField label="Code" help="Short unique code, e.g. WH-ABJ">
-            <UInput v-model="whForm.code" class="w-full" placeholder="WH-ABJ" />
+          <UFormField label="Code (optional)" help="Leave empty and one is made for you, e.g. WH-03">
+            <UInput v-model="whForm.code" class="w-full" placeholder="Made for you automatically" />
           </UFormField>
           <UFormField label="Name">
             <UInput v-model="whForm.name" class="w-full" placeholder="Abuja Central Warehouse" />
@@ -608,7 +617,7 @@ function copyWebhook() {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showWh = false">Cancel</UButton>
-          <UButton :loading="whSaving" :disabled="!whForm.code || !whForm.name" @click="createWarehouse">Create</UButton>
+          <UButton :loading="whSaving" @click="needs([['Warehouse name', whForm.name]]) && createWarehouse()">Create</UButton>
         </div>
       </template>
     </UModal>
@@ -629,19 +638,19 @@ function copyWebhook() {
             <UBadge v-for="l in (editWh?.locations || [])" :key="l.id" color="neutral" variant="subtle" size="xs">{{ l.code }} · {{ l.kind }}</UBadge>
             <span v-if="!(editWh?.locations || []).length" class="text-xs text-zinc-400">No locations yet</span>
           </div>
-          <UFormField label="New location code"><UInput v-model="locForm.code" class="w-full" placeholder="e.g. C03-SHELF" @keydown.enter="addLocation" /></UFormField>
+          <UFormField label="New location code (optional)"><UInput v-model="locForm.code" class="w-full" placeholder="Made for you automatically" @keydown.enter="addLocation" /></UFormField>
           <UFormField label="Kind">
             <USelect v-model="locForm.kind" class="w-full" :items="['SHELF', 'STAGING', 'DAMAGED', 'RETURNS'].map(k => ({ label: k, value: k }))" />
           </UFormField>
           <div class="sm:col-span-2">
-            <UButton size="xs" variant="soft" icon="i-lucide-plus" :loading="whSaving" :disabled="!locForm.code" @click="addLocation">Add location</UButton>
+            <UButton size="xs" variant="soft" icon="i-lucide-plus" :loading="whSaving" @click="addLocation">Add location</UButton>
           </div>
         </div>
       </template>
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="editWh = null">Cancel</UButton>
-          <UButton :loading="whSaving" :disabled="!editWhForm.name" @click="saveWarehouse">Save changes</UButton>
+          <UButton :loading="whSaving" @click="needs([['Warehouse name', editWhForm.name]]) && saveWarehouse()">Save changes</UButton>
         </div>
       </template>
     </UModal>

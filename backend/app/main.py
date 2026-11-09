@@ -17,6 +17,8 @@ log = logging.getLogger("keyway")
 async def lifespan(_app: FastAPI):
     # Create the schema, then bootstrap (production) or seed demo data (development).
     Base.metadata.create_all(bind=engine)
+    from app.core.migrate import add_missing_columns
+    add_missing_columns(engine, Base)
     from app.seed import seed_if_empty, seed_notification_rules
     db = SessionLocal()
     try:

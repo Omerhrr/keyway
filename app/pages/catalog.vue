@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { needs } = useGuard()
 const products = ref<any[]>([])
 const vendors = ref<any[]>([])
 const loading = ref(true)
@@ -121,7 +122,7 @@ async function exportCatalog() {
     }))" :loading="loading" empty-title="No products" empty-hint="Add products per vendor with aliases like 'sneakers' for WhatsApp matching.">
       <template #name="{ row }">
         <p class="font-medium text-zinc-800 dark:text-zinc-200">{{ row.name }}</p>
-        <p class="text-[11px] text-zinc-400 font-mono">{{ row.sku }}</p>
+        <p class="text-[11px] text-zinc-400 font-mono">{{ row.sku }}<UBadge v-if="row.vendor_status && row.vendor_status !== 'ACTIVE'" color="neutral" variant="subtle" size="xs" class="ml-2 font-sans">Vendor paused</UBadge></p>
       </template>
     </DataTable>
 
@@ -129,9 +130,9 @@ async function exportCatalog() {
       <template #body>
         <div class="grid sm:grid-cols-2 gap-3">
           <UFormField label="Vendor">
-            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.vendor_id = v }" :model-value="form.vendor_id || undefined" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" />
+            <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.vendor_id = v }" :model-value="form.vendor_id || undefined" class="w-full" :items="vendors.filter(v => v.status === 'ACTIVE').map(v => ({ label: v.name, value: v.id }))" />
           </UFormField>
-          <UFormField label="Product code"><UInput v-model="form.sku" class="w-full" /></UFormField>
+          <UFormField label="Product code (optional)" help="Made for you if left empty"><UInput v-model="form.sku" class="w-full" /></UFormField>
           <UFormField label="Name"><UInput v-model="form.name" class="w-full" /></UFormField>
           <UFormField label="Category"><UInput v-model="form.category" class="w-full" /></UFormField>
           <UFormField label="Default price (₦)"><UInput v-model="form.price_naira" class="w-full" /></UFormField>
@@ -141,7 +142,7 @@ async function exportCatalog() {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showNew = false">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!form.vendor_id || !form.sku || !form.name" @click="create">Create</UButton>
+          <UButton :loading="saving" @click="needs([['Vendor', form.vendor_id], ['Product name', form.name]]) && create()">Create</UButton>
         </div>
       </template>
     </UModal>
@@ -151,7 +152,7 @@ async function exportCatalog() {
       <template #body>
         <div class="space-y-3">
           <UFormField label="Vendor" description="Products are imported into this vendor's own catalog.">
-            <USelect v-model="importVendorId" placeholder="Choose vendor" class="w-full" :items="vendors.map(v => ({ label: v.name, value: v.id }))" />
+            <USelect v-model="importVendorId" placeholder="Choose vendor" class="w-full" :items="vendors.filter(v => v.status === 'ACTIVE').map(v => ({ label: v.name, value: v.id }))" />
           </UFormField>
           <UFormField label="File" help=".csv or .xlsx, up to 5 MB">
             <input type="file" accept=".csv,.xlsx,.xlsm,text/csv"
@@ -174,7 +175,7 @@ async function exportCatalog() {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showImport = false">Close</UButton>
-          <UButton :loading="importing" :disabled="!importVendorId || !importFile" icon="i-lucide-upload-cloud" @click="runImport">Import</UButton>
+          <UButton :loading="importing" icon="i-lucide-upload-cloud" @click="needs([['Vendor', importVendorId], ['File to import', importFile]]) && runImport()">Import</UButton>
         </div>
       </template>
     </UModal>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { needs } = useGuard()
 const settlements = ref<any[]>([])
 const loading = ref(true)
 const saving = ref(false)
@@ -119,7 +120,7 @@ async function pay() {
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showBuild = false">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!buildVendor" @click="build">Build batch</UButton>
+          <UButton :loading="saving" @click="needs([['Vendor', buildVendor]]) && build()">Build batch</UButton>
         </div>
       </template>
     </UModal>

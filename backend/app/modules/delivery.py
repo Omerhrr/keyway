@@ -57,6 +57,8 @@ class RiderIn(BaseModel):
     zone_id: int | None = None
     status: str = "ACTIVE"
     user_id: int | None = None
+    login_email: str = ""      # optional: give the rider a sign-in to see their own deliveries
+    login_password: str = ""
 
 
 class CarrierIn(BaseModel):
@@ -144,7 +146,7 @@ def create_dispatch(body: DispatchIn, user: User = Depends(require_perm("dispatc
                      amount_kobo=fee, reason=f"Delivery fee for {o.reference}", actor=user, commit=False)
     except ValueError as ex:
         # No fee and no pricing rule: dispatch continues but the gap is recorded, not hidden.
-        charge_note = f" | NO CHARGE APPLIED: {ex}"
+        charge_note = " (no delivery charge recorded: no fee given and no pricing rule found)"
     o.delivery_fee_kobo = fee
     if o.payment_method == "COD":
         o.cod_amount_kobo = o.items_total_kobo + fee
@@ -152,7 +154,7 @@ def create_dispatch(body: DispatchIn, user: User = Depends(require_perm("dispatc
     o.status = "DISPATCHED"
     d.dispatch_at = utcnow()
     add_event(db, o, "DISPATCH", from_status, "DISPATCHED", user,
-              f"Dispatch via {body.mode}, fee {fee / 100:.0f} NGN{charge_note}")
+              f"Dispatched via {body.mode.replace('_', ' ').title()}, delivery fee ₦{fee / 100:,.0f}{charge_note}")
     notify(db, event_type="ORDER_DISPATCHED", title=f"Order {o.reference} dispatched",
            vendor_id=o.vendor_id, entity_type="order", entity_id=o.id)
     audit(db, user, "dispatch", "order", o.id, f"Order {o.reference} dispatched via {body.mode}")
@@ -230,7 +232,25 @@ def create_rider(body: RiderIn, user: User = Depends(require_perm("settings.mana
         raise HTTPException(400, "Delivery zone not found")
     if body.user_id and not db.get(User, body.user_id):
         raise HTTPException(400, "Linked user not found")
-    r = Rider(**body.model_dump())
+    data = body.model_dump()
+    login_email, login_password = data.pop("login_email").strip().lower(), data.pop("login_password")
+    if login_email or login_password:
+        from app.modules.identity import _check_password, _clean_email
+        from app.modules.identity_models import Role
+        from app.core.security import hash_password
+        if not (login_email and login_password):
+            raise HTTPException(400, "Give the rider both a sign-in email and a password, or neither")
+        login_email = _clean_email(login_email)
+        _check_password(login_password)
+        if db.query(User).filter(User.email == login_email).first():
+            raise HTTPException(400, "That email already has an account")
+        role = db.query(Role).filter(Role.name == "Rider").first()
+        u = User(email=login_email, password_hash=hash_password(login_password), full_name=body.full_name,
+                 phone=body.phone, role_id=role.id if role else None)
+        db.add(u)
+        db.flush()
+        data["user_id"] = u.id
+    r = Rider(**data)
     db.add(r)
     db.commit()
     return serialize(r)
@@ -300,6 +320,26 @@ def my_assignments(user: User = Depends(get_current_user), db: Session = Depends
                     Delivery.status.in_(["ASSIGNED", "PICKED_UP", "DISPATCHED", "IN_TRANSIT", "OUT_FOR_DELIVERY"]))
             .order_by(Delivery.id.desc()).all())
     return [serialize(d, order_reference=o.reference, customer_name=c.name,
-                      customer_phone=c.phone, address=f"{o.delivery_street} {o.delivery_area}, {o.delivery_city}",
+                      customer_phone=c.phone, address=", ".join(x.strip() for x in (o.delivery_street, o.delivery_area, o.delivery_city) if x and x.strip()),
                       cod_expected=o.cod_amount_kobo if o.payment_method == "COD" else 0)
             for d, o, c in rows]
+
+
+class RiderOutcomeIn(BaseModel):
+    to_status: str
+    failure_reason: str = ""
+    proof_ref: str = ""
+    note: str = ""
+
+
+@router.post("/assignments/{delivery_id}/status")
+def rider_update_status(delivery_id: int, body: RiderOutcomeIn, user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """A rider reports the result of their OWN delivery from their phone."""
+    rider = db.query(Rider).filter(Rider.user_id == user.id).first()
+    d = db.get(Delivery, delivery_id)
+    if not rider or not d or d.rider_id != rider.id:
+        raise HTTPException(404, "Delivery not found")
+    if body.to_status not in ("IN_TRANSIT", "DELIVERED", "FAILED"):
+        raise HTTPException(400, "A rider can mark a delivery as on the way, delivered or failed")
+    return update_delivery_status(delivery_id, DeliveryStatusIn(**body.model_dump()), user, db)

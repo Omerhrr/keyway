@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { needs } = useGuard()
 const deliveries = ref<any[]>([])
 const riders = ref<any[]>([])
 const carriers = ref<any[]>([])
@@ -82,7 +83,7 @@ async function submitOutcome() {
 
 // rider / carrier / zone creation
 const showRider = ref(false)
-const riderForm = reactive({ full_name: '', phone: '', vehicle: '' })
+const riderForm = reactive({ full_name: '', phone: '', vehicle: '', login_email: '', login_password: '' })
 async function createRider() {
   await api('/dispatch/riders', { method: 'POST', body: { ...riderForm } })
   showRider.value = false
@@ -190,13 +191,14 @@ async function createZone() {
           <UFormField label="Zone">
             <USelect v-model="form.zone_id" class="w-full" :items="[{ label: 'No zone', value: 0 }, ...zones.map(z => ({ label: `${z.name} · ${fmtNaira(z.base_fee_kobo)}`, value: z.id }))]" />
           </UFormField>
-          <UFormField label="Fee override (₦)"><UInput v-model="form.fee_naira" class="w-full" /></UFormField>
+          <UFormField label="Delivery fee (₦)" help="Leave empty to use the zone fee"><UInput v-model="form.fee_naira" class="w-full" /></UFormField>
+          <UAlert v-if="!form.zone_id && !form.fee_naira" class="sm:col-span-2" color="warning" variant="subtle" icon="i-lucide-triangle-alert" title="No delivery fee yet" description="Pick a zone or type a fee. Without one, no delivery charge is recorded for this order." />
         </div>
       </template>
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton variant="ghost" color="neutral" @click="showDispatch = false">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!form.order_id" icon="i-lucide-truck" @click="dispatch">Dispatch</UButton>
+          <UButton :loading="saving" icon="i-lucide-truck" @click="needs([['Order', form.order_id]]) && dispatch()">Dispatch</UButton>
         </div>
       </template>
     </UModal>
@@ -235,6 +237,8 @@ async function createZone() {
           <UFormField label="Full name"><UInput v-model="riderForm.full_name" class="w-full" /></UFormField>
           <UFormField label="Phone"><UInput v-model="riderForm.phone" class="w-full" /></UFormField>
           <UFormField label="Vehicle"><UInput v-model="riderForm.vehicle" class="w-full" /></UFormField>
+          <UFormField label="Sign-in email (optional)" help="Lets the rider log in on their phone and see their own deliveries"><UInput v-model="riderForm.login_email" type="email" class="w-full" /></UFormField>
+          <UFormField label="Sign-in password (optional)"><UInput v-model="riderForm.login_password" type="password" class="w-full" /></UFormField>
         </div>
       </template>
       <template #footer><div class="w-full flex justify-end"><UButton @click="createRider">Save</UButton></div></template>

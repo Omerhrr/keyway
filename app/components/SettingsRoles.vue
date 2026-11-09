@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const { needs } = useGuard()
 const emit = defineEmits<{ (e: 'changed'): void }>()
 const data = ref<any>(null)
 const loading = ref(true)
@@ -156,7 +157,7 @@ const permsOf = (r: any) => data.value?.role_permissions[String(r.id)] || []
       <template #footer>
         <div class="flex justify-end gap-2 w-full">
           <UButton color="neutral" variant="ghost" @click="showEdit = false">Cancel</UButton>
-          <UButton :loading="saving" :disabled="!form.name.trim()" @click="save">{{ editing ? 'Save changes' : 'Create role' }}</UButton>
+          <UButton :loading="saving" @click="needs([['Role name', form.name]]) && save()">{{ editing ? 'Save changes' : 'Create role' }}</UButton>
         </div>
       </template>
     </UModal>

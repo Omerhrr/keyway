@@ -36,7 +36,7 @@ def get_account_by_subtype(db: Session, subtype: str) -> Account:
 
 
 class AccountIn(BaseModel):
-    code: str
+    code: str = ""
     name: str
     type: str
     subtype: str = ""
@@ -80,9 +80,16 @@ def list_accounts(user: User = Depends(require_books), db: Session = Depends(get
 def create_account(body: AccountIn, user: User = Depends(require_perm("finance.manage")), db: Session = Depends(get_db)):
     if body.type not in ("ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"):
         raise HTTPException(400, "Invalid account type")
+    if not body.name.strip():
+        raise HTTPException(400, "Account name is required")
     code = body.code.strip()
-    if not code or not body.name.strip():
-        raise HTTPException(400, "Account code and name are required")
+    if not code:
+        base = {"ASSET": 1000, "LIABILITY": 2000, "EQUITY": 3000, "REVENUE": 4000, "EXPENSE": 5000}[body.type]
+        used = {a.code for a in db.query(Account).filter(Account.type == body.type).all()}
+        n = base + 10
+        while str(n) in used or db.query(Account).filter(Account.code == str(n)).first():
+            n += 1
+        code = str(n)
     if db.query(Account).filter(Account.code == code).first():
         raise HTTPException(400, f"Account code {code} already exists")
     data = body.model_dump()

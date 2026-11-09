@@ -132,6 +132,11 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is suspended")
+    if user.is_vendor and user.vendor_id:
+        from app.modules.vendors_models import Vendor
+        _v = db.get(Vendor, user.vendor_id)
+        if _v and _v.status != "ACTIVE":
+            raise HTTPException(status_code=403, detail="This vendor account is paused. Please contact the company.")
     _LOGIN_FAILS.pop(key, None)  # successful login clears the failure window
     user.last_login_at = utcnow()
     db.commit()
@@ -183,6 +188,9 @@ def create_user(body: UserCreate, user: User = Depends(require_perm("settings.ma
         from app.modules.vendors_models import Vendor
         if not body.vendor_id or not db.get(Vendor, body.vendor_id):
             raise HTTPException(400, "A vendor-portal user needs a valid vendor_id")
+    if body.is_vendor and body.role_id is None:  # portal accounts always get the Vendor role
+        _vr = db.query(Role).filter(Role.name == "Vendor").first()
+        body.role_id = _vr.id if _vr else None
     u = User(email=email, password_hash=hash_password(body.password),
              full_name=body.full_name, phone=body.phone, role_id=body.role_id,
              department=body.department, job_title=body.job_title, warehouse_id=body.warehouse_id,

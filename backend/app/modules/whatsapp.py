@@ -99,7 +99,7 @@ def match_vendor(db: Session, phone: str) -> tuple[Vendor | None, VendorContact 
                .first())
     if contact:
         vendor = db.get(Vendor, contact.vendor_id)
-        if vendor:
+        if vendor and vendor.status == "ACTIVE":  # a paused vendor's messages wait in the unknown-sender list
             return vendor, contact, "PHONE_NUMBER"
     return None, None, "NONE"
 

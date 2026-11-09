@@ -24,12 +24,13 @@ function printOrder() {
       ['Phone', o.customer?.phone || '-'],
       ['Delivery address', [o.delivery_street, o.delivery_area, o.delivery_city, o.delivery_state].filter(Boolean).join(', ') || '-'],
       ['Payment', titleize(o.payment_method)],
+      ...(o.discount_kobo ? [['Order discount', `- ${fmtNaira(o.discount_kobo)}${o.discount_note ? ' (' + o.discount_note + ')' : ''}`]] : []),
       ['Cash to collect', fmtNaira(o.cod_amount_kobo)],
     ],
     tables: [{
       heading: 'Items',
       columns: ['Item', 'Qty', 'Unit price', 'Total'],
-      rows: (o.items || []).map((it: any) => [it.name_snapshot, it.qty, fmtNaira(it.unit_price_kobo), fmtNaira(it.line_total_kobo)]),
+      rows: (o.items || []).map((it: any) => [it.name_snapshot, it.qty, it.is_gift ? 'Free' : fmtNaira(it.unit_price_kobo), it.is_gift ? 'Free' : fmtNaira(it.line_total_kobo)]),
     }],
   })
 }
@@ -165,11 +166,21 @@ async function recordAttempt() {
                     <p class="text-[11px] text-zinc-400 font-mono">{{ it.sku_snapshot }} · price {{ titleize(it.price_source) }}</p>
                   </td>
                   <td class="px-4 py-2.5 text-right">{{ it.qty }}</td>
-                  <td class="px-4 py-2.5 text-right">{{ fmtNaira(it.unit_price_kobo) }}</td>
-                  <td class="px-4 py-2.5 text-right pr-4 font-semibold">{{ fmtNaira(it.line_total_kobo) }}</td>
+                  <td class="px-4 py-2.5 text-right">{{ it.is_gift ? '-' : fmtNaira(it.unit_price_kobo) }}</td>
+                  <td class="px-4 py-2.5 text-right pr-4 font-semibold">
+                    <template v-if="it.is_gift"><span class="text-emerald-600">Free gift</span></template>
+                    <template v-else>
+                      {{ fmtNaira(it.line_total_kobo) }}
+                      <p v-if="it.discount_kobo" class="text-[11px] font-normal text-emerald-600">saved {{ fmtNaira(it.discount_kobo) }}</p>
+                    </template>
+                  </td>
                 </tr>
               </tbody>
               <tfoot>
+                <tr v-if="order.discount_kobo" class="border-t border-zinc-200 dark:border-zinc-700 text-emerald-600">
+                  <td colspan="3" class="px-4 py-1 text-right">Order discount<span v-if="order.discount_note" class="text-zinc-400"> ({{ order.discount_note }})</span></td>
+                  <td class="px-4 py-1 text-right pr-4">- {{ fmtNaira(order.discount_kobo) }}</td>
+                </tr>
                 <tr class="border-t border-zinc-200 dark:border-zinc-700 font-semibold">
                   <td colspan="3" class="px-4 py-2 text-right text-zinc-500">Items total</td>
                   <td class="px-4 py-2 text-right pr-4">{{ fmtNaira(order.items_total_kobo) }}</td>
@@ -279,7 +290,7 @@ async function recordAttempt() {
           <div class="space-y-3">
             <UAlert v-if="toStatus === 'CANCELLED'" color="error" variant="subtle" title="Cancellation requires a reason and releases reserved stock." />
             <UAlert v-else-if="toStatus === 'DELIVERED'" color="warning" variant="subtle" title="Marking delivered consumes reserved stock. Delivery should normally be confirmed from Dispatch." />
-            <USelect v-model="toStatus" :items="nexts.map(s => ({ label: titleize(s), value: s }))" class="w-full" />
+            <USelect v-model="toStatus" placeholder="Move the order to..." :items="nexts.map(s => ({ label: titleize(s), value: s }))" class="w-full" />
             <UFormField label="Note / reason"><UTextarea v-model="note" class="w-full" :rows="2" /></UFormField>
           </div>
         </template>

@@ -80,6 +80,9 @@ class Order(Base):
     items_total_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     delivery_fee_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
     cod_amount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)  # expected COD
+    # order-level discount; items_total_kobo is already net of line and order discounts
+    discount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    discount_note: Mapped[str] = mapped_column(String(255), default="")
     assigned_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -99,7 +102,9 @@ class OrderItem(Base):
     sku_snapshot: Mapped[str] = mapped_column(String(80), default="")
     qty: Mapped[int] = mapped_column(Integer, default=1)
     unit_price_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
-    line_total_kobo: Mapped[int] = mapped_column(BigInteger, default=0)
+    line_total_kobo: Mapped[int] = mapped_column(BigInteger, default=0)  # what the customer pays for this line
+    discount_kobo: Mapped[int] = mapped_column(BigInteger, default=0)  # line discount / bundle saving
+    is_gift: Mapped[bool] = mapped_column(Boolean, default=False)
     # EXTRACTED | DEFAULT | MANUAL
     price_source: Mapped[str] = mapped_column(String(20), default="DEFAULT")
 

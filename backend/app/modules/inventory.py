@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/inventory", tags=["inventory"])
 
 
 class WarehouseIn(BaseModel):
-    code: str
+    code: str = ""
     name: str
     address: str = ""
     city: str = ""
@@ -28,7 +28,7 @@ class WarehouseIn(BaseModel):
 
 class LocationIn(BaseModel):
     warehouse_id: int
-    code: str
+    code: str = ""
     kind: str = "SHELF"
 
 
@@ -167,6 +167,9 @@ def list_warehouses(user: User = Depends(require_staff), db: Session = Depends(g
 
 @router.post("/warehouses")
 def create_warehouse(body: WarehouseIn, user: User = Depends(require_perm("inventory.manage")), db: Session = Depends(get_db)):
+    if not body.code.strip():
+        from app.core.codes import next_code
+        body.code = next_code(db, Warehouse, "code", "WH", width=2)
     if db.query(Warehouse).filter(Warehouse.code == body.code).first():
         raise HTTPException(400, "Warehouse code exists")
     w = Warehouse(**body.model_dump())
@@ -246,7 +249,10 @@ def create_location(body: LocationIn, user: User = Depends(require_perm("invento
     if not db.get(Warehouse, body.warehouse_id):
         raise HTTPException(404, "Warehouse not found")
     if not body.code.strip():
-        raise HTTPException(400, "Location code is required")
+        from app.core.codes import next_code
+        body.code = next_code(db, WarehouseLocation, "code",
+                              {"SHELF": "SH", "BIN": "BIN", "RACK": "RK", "ZONE": "ZN", "FLOOR": "FL"}.get((body.kind or "").upper(), "LOC"), width=2,
+                              warehouse_id=body.warehouse_id)
     l = WarehouseLocation(**body.model_dump())
     db.add(l)
     db.commit()
@@ -272,7 +278,7 @@ def balances(user: User = Depends(require_staff), db: Session = Depends(get_db),
         available = b.qty_physical - b.qty_reserved
         if low_stock and available > p.reorder_level:
             continue
-        out.append(serialize(b, product_name=p.name, sku=p.sku, variant_name="", vendor_name=v.name,
+        out.append(serialize(b, product_name=p.name, sku=p.sku, variant_name="", vendor_name=v.name, vendor_status=v.status,
                              vendor_id=p.vendor_id, reorder_level=p.reorder_level,
                              warehouse_name=whs.get(b.warehouse_id, ""),
                              qty_available=available, low_stock=available <= p.reorder_level,
@@ -365,6 +371,8 @@ def create_receipt(body: ReceiptIn, user: User = Depends(require_perm("inventory
         raise HTTPException(400, "At least one product line is required")
     if not db.get(Vendor, body.vendor_id):
         raise HTTPException(400, "Vendor not found")
+    from app.core.vendorguard import require_active_vendor
+    require_active_vendor(db, body.vendor_id, "receive stock")
     if not db.get(Warehouse, body.warehouse_id):
         raise HTTPException(400, "Warehouse not found")
     r = StockReceipt(reference="PENDING", vendor_id=body.vendor_id, warehouse_id=body.warehouse_id,
@@ -372,6 +380,8 @@ def create_receipt(body: ReceiptIn, user: User = Depends(require_perm("inventory
     db.add(r)
     db.flush()
     r.reference = next_ref(db, StockReceipt, "reference", "RCV")
+    if not r.batch_ref.strip():
+        r.batch_ref = r.reference
     for line in body.lines:
         p = db.get(Product, line.product_id)
         if not p:
@@ -460,6 +470,9 @@ def create_transfer(body: TransferIn, user: User = Depends(require_perm("invento
         raise HTTPException(404, "Warehouse not found")
     if not src.is_active or not dst.is_active:
         raise HTTPException(400, "Both warehouses must be active")
+    from app.core.vendorguard import require_active_vendor
+    _tp = db.get(Product, body.product_id)
+    require_active_vendor(db, _tp.vendor_id if _tp else None, "move this stock")
     p = db.get(Product, body.product_id)
     if not p:
         raise HTTPException(404, "Product not found")

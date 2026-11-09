@@ -8,6 +8,7 @@ export const ROUTE_RULES: [string, string[], string | null][] = [
   ['/confirmations', ['confirmations.manage'], 'confirmations'],
   ['/dispatch', ['dispatch.view', 'dispatch.manage'], 'dispatch'],
   ['/vendors', ['vendors.view', 'vendors.manage'], null],
+  ['/vendor', ['vendors.view', 'vendors.manage'], null],
   ['/catalog', ['catalog.view', 'catalog.manage'], null],
   ['/inventory', ['inventory.view', 'inventory.manage'], null],
   ['/customers', ['orders.view', 'orders.manage'], null],
