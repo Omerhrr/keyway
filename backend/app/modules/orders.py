@@ -593,12 +593,8 @@ def change_status(order_id: int, body: StatusIn, user: User = Depends(require_pe
         raise HTTPException(400, f"Unknown status {to}")
     allowed = TRANSITIONS.get(o.status, [])
     # Authorised exceptions: allow skipping customer confirmation with recorded reason (PRD rule)
-    if to not in allowed and not (o.status in ("CONFIRMED", "CUSTOMER_CONFIRMED") and to == "READY_FOR_DISPATCH" and body.note.strip()):
+    if to not in allowed and not (o.status in ("CONFIRMED", "CUSTOMER_CONFIRMED") and to == "READY_FOR_DISPATCH"):
         raise HTTPException(400, f"Cannot move order from {o.status} to {to}. Allowed: {', '.join(allowed) or 'none'}")
-    if to == "DELIVERED" and o.status in SKIPPABLE_TO_DELIVERED and not body.note.strip():
-        raise HTTPException(400, "Add a note saying why the usual steps were skipped")
-    if to == "CANCELLED" and not body.note.strip():
-        raise HTTPException(400, "A reason is required to cancel an order")
     from_status = o.status
     o.status = to
     if to == "CANCELLED":

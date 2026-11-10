@@ -268,7 +268,7 @@ async function cancelTransfer(t: any) {
             <UFormField label="Physical Δ (+/-)"><UInput v-model="adjForm.delta_physical" type="number" class="w-full" /></UFormField>
             <UFormField label="Damaged Δ (+/-)"><UInput v-model="adjForm.delta_damaged" type="number" class="w-full" /></UFormField>
           </div>
-          <UFormField label="Reason (required)"><UInput v-model="adjForm.reason" class="w-full" placeholder="e.g. stocktake correction, breakage" /></UFormField>
+          <UFormField label="Reason (optional)"><UInput v-model="adjForm.reason" class="w-full" placeholder="e.g. stocktake correction, breakage" /></UFormField>
         </div>
       </template>
       <template #footer>

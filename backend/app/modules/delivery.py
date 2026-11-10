@@ -173,8 +173,6 @@ def update_delivery_status(delivery_id: int, body: DeliveryStatusIn, user: User 
     o = db.get(Order, d.order_id)
     if o.status in ("CANCELLED", "DELIVERED", "RETURNED_TO_WAREHOUSE") and to != "RETURNED":
         raise HTTPException(400, f"Order {o.reference} is {o.status}; its delivery can no longer change")
-    if to == "FAILED" and not body.failure_reason.strip():
-        raise HTTPException(400, "A failure reason is required")
     prev = o.status
     d.status = to
     if to == "DELIVERED":

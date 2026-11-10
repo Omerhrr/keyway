@@ -206,8 +206,6 @@ def apply_manual(body: ApplyIn, user: User = Depends(require_perm("charges.manag
     o = db.get(Order, body.order_id)
     if not o:
         raise HTTPException(404, "Order not found")
-    if not body.reason.strip():
-        raise HTTPException(400, "Every charge needs a recorded reason")
     if body.charge_type not in CHARGE_TYPES:
         raise HTTPException(400, "Unknown charge type")
     if body.amount_kobo < 0:

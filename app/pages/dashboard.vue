@@ -16,7 +16,6 @@ async function loadJobs() {
   jobs.value = await api('/dispatch/assignments/me')
 }
 async function report(j: any, to: string) {
-  if (to === 'FAILED' && !failReason.value.trim()) { jobMsg.value = 'Tell us why the delivery failed.'; return }
   busy.value = j.id; jobMsg.value = ''
   try {
     await api(`/dispatch/assignments/${j.id}/status`, { method: 'POST', body: { to_status: to, failure_reason: failReason.value } })

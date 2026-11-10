@@ -54,7 +54,6 @@ function openCharge(order?: { id: number, ref: string }) { chargeOrder.value = o
 async function addCharge() {
   const amount = toKobo(chargeForm.amount)
   if (!amount || amount <= 0) { useToast().add({ title: 'Enter the charge amount', color: 'warning' }); return }
-  if (!chargeForm.reason.trim()) { useToast().add({ title: 'Say why this charge applies', color: 'warning' }); return }
   saving.value = true
   try {
     await api(`/settlements/${props.id}/charges`, { method: 'POST', body: { order_id: chargeOrder.value?.id || null, charge_type: chargeForm.charge_type, amount_kobo: amount, reason: chargeForm.reason } })
@@ -125,7 +124,7 @@ async function addCharge() {
           <UAlert color="info" variant="subtle" icon="i-lucide-info" title="Deducted from what the vendor is owed" description="Use this for anything not already charged on the orders, such as storage or special handling. Every charge is recorded with its reason." />
           <UFormField label="Charge type"><USelect v-model="chargeForm.charge_type" class="w-full" :items="chargeTypes.map(t => ({ label: titleize(t), value: t }))" /></UFormField>
           <UFormField label="Amount (₦)"><UInput v-model="chargeForm.amount" inputmode="decimal" class="w-full" /></UFormField>
-          <UFormField label="Reason"><UTextarea v-model="chargeForm.reason" :rows="2" class="w-full" /></UFormField>
+          <UFormField label="Reason (optional)"><UTextarea v-model="chargeForm.reason" :rows="2" class="w-full" /></UFormField>
         </div>
       </template>
       <template #footer>

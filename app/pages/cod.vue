@@ -207,7 +207,7 @@ async function confirmHandover(h: any) {
           <UFormField label="Method">
             <USelect v-model="verifyForm.method" class="w-full" :items="[{ label: 'Cash', value: 'CASH' }, { label: 'Bank transfer', value: 'BANK_TRANSFER' }, { label: 'Digital', value: 'DIGITAL' }]" />
           </UFormField>
-          <UFormField label="Note" help="Required when the amounts differ">
+          <UFormField label="Note" help="Optional">
             <UTextarea v-model="verifyForm.note" :rows="2" class="w-full" />
           </UFormField>
         </div>

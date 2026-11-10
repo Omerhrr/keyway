@@ -132,7 +132,7 @@ class AddChargeIn(BaseModel):
     order_id: int | None = None   # charge a specific order in this settlement (optional)
     charge_type: str = "OTHER"
     amount_kobo: int
-    reason: str
+    reason: str = ""
 
 
 @router.post("/{settlement_id}/charges")
@@ -148,8 +148,6 @@ def add_settlement_charge(settlement_id: int, body: AddChargeIn, user: User = De
         raise HTTPException(400, "Unknown charge type")
     if body.amount_kobo <= 0:
         raise HTTPException(400, "Enter the charge amount")
-    if not body.reason.strip():
-        raise HTTPException(400, "Every charge needs a recorded reason")
     if s.net_kobo - body.amount_kobo < max(0, s.paid_kobo):
         raise HTTPException(400, "This charge is more than what is still unpaid on this settlement")
     from app.modules.ledger import get_account_by_subtype, post_journal
@@ -157,13 +155,13 @@ def add_settlement_charge(settlement_id: int, body: AddChargeIn, user: User = De
                                                                SettlementItem.order_id == body.order_id).first():
         raise HTTPException(400, "That order is not part of this settlement")
     ch = apply_charge(db, vendor_id=s.vendor_id, order_id=body.order_id or None, charge_type=body.charge_type,
-                      amount_kobo=body.amount_kobo, reason=body.reason.strip(), actor=user, commit=False)
+                      amount_kobo=body.amount_kobo, reason=body.reason.strip() or f"{body.charge_type.replace('_', ' ').title()} charge", actor=user, commit=False)
     db.add(SettlementItem(settlement_id=s.id, order_id=ch.order_id, charge_id=ch.id, type="CHARGE",
                           gross_kobo=0, deduction_kobo=ch.amount_kobo, net_kobo=-ch.amount_kobo))
     s.charges_kobo += ch.amount_kobo
     s.net_kobo -= ch.amount_kobo
     try:
-        post_journal(db, memo=f"Charge on settlement {s.reference}: {body.reason.strip()}",
+        post_journal(db, memo=f"Charge on settlement {s.reference}" + (f": {body.reason.strip()}" if body.reason.strip() else ""),
                      source_type="CHARGE_RECOGNITION", source_id=ch.id,
                      lines=[{"account_id": get_account_by_subtype(db, "VENDOR_PAYABLE").id, "debit_kobo": ch.amount_kobo, "vendor_id": s.vendor_id},
                             {"account_id": get_account_by_subtype(db, "LOGISTICS_REVENUE").id, "credit_kobo": ch.amount_kobo}],

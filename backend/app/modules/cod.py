@@ -199,8 +199,6 @@ def verify_collection(collection_id: int, body: VerifyIn, user: User = Depends(r
         raise HTTPException(400, f"Cannot verify a {c.status} collection")
     o = db.get(Order, c.order_id)
     discrepancy = c.expected_kobo - c.collected_kobo
-    if discrepancy != 0 and not body.note.strip():
-        raise HTTPException(400, "Collection does not match expected amount - a reason is required to verify a discrepancy")
     c.status = "VERIFIED" if discrepancy == 0 else "DISCREPANCY"
     c.discrepancy_kobo = discrepancy
     c.verified_by_user_id = user.id

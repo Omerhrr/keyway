@@ -253,7 +253,7 @@ async function approveExpense(e: any, ok: boolean) {
       <template #body>
         <div class="space-y-3">
           <UAlert color="warning" variant="subtle" icon="i-lucide-undo-2" title="Posted entries are immutable." description="A reversal entry with mirrored lines will be created and linked to the original." />
-          <UFormField label="Reason"><UInput v-model="revReason" class="w-full" /></UFormField>
+          <UFormField label="Reason (optional)"><UInput v-model="revReason" class="w-full" /></UFormField>
         </div>
       </template>
       <template #footer>

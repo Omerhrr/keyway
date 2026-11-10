@@ -211,7 +211,7 @@ async function createZone() {
             { label: 'Delivered', value: 'DELIVERED' }, { label: 'Failed', value: 'FAILED' },
             { label: 'Out for delivery', value: 'OUT_FOR_DELIVERY' }, { label: 'Returning', value: 'RETURNING' },
           ]" />
-          <UFormField v-if="outcomeForm.to_status === 'FAILED'" label="Failure reason">
+          <UFormField v-if="outcomeForm.to_status === 'FAILED'" label="Failure reason (optional)">
             <UInput v-model="outcomeForm.failure_reason" class="w-full" placeholder="e.g. Customer unreachable" />
           </UFormField>
           <UFormField v-if="outcomeForm.to_status === 'DELIVERED'" label="Proof reference" help="Photo/receipt reference from the rider">

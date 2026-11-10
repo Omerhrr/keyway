@@ -36,7 +36,7 @@ class AdjustIn(BaseModel):
     balance_id: int
     delta_physical: int = 0
     delta_damaged: int = 0
-    reason: str
+    reason: str = ""
 
 
 class ReceiptLineIn(BaseModel):
@@ -307,8 +307,6 @@ def adjust(body: AdjustIn, user: User = Depends(require_perm("inventory.manage")
     b = db.get(InventoryBalance, body.balance_id)
     if not b:
         raise HTTPException(404, "Balance not found")
-    if not body.reason.strip():
-        raise HTTPException(400, "A reason is required for every stock adjustment")
     if not body.delta_physical and not body.delta_damaged:
         raise HTTPException(400, "Nothing to adjust: both deltas are zero")
     new_physical = b.qty_physical + body.delta_physical
@@ -321,9 +319,9 @@ def adjust(body: AdjustIn, user: User = Depends(require_perm("inventory.manage")
     b.qty_physical = new_physical
     b.qty_damaged = new_damaged
     if body.delta_physical:
-        _movement(db, b.product_id, b.variant_id, b.warehouse_id, "ADJUST", body.delta_physical, body.reason, "manual", "", user)
+        _movement(db, b.product_id, b.variant_id, b.warehouse_id, "ADJUST", body.delta_physical, (body.reason or "Stock adjustment"), "manual", "", user)
     if body.delta_damaged:
-        _movement(db, b.product_id, b.variant_id, b.warehouse_id, "DAMAGE", body.delta_damaged, body.reason, "manual", "", user)
+        _movement(db, b.product_id, b.variant_id, b.warehouse_id, "DAMAGE", body.delta_damaged, (body.reason or "Stock adjustment"), "manual", "", user)
     db.commit()
     audit(db, user, "adjust", "inventory_balance", b.id, f"Stock adjust: {body.reason}",
           data={"delta_physical": body.delta_physical, "delta_damaged": body.delta_damaged})

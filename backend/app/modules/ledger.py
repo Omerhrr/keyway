@@ -57,7 +57,7 @@ class JournalIn(BaseModel):
 
 
 class ReverseIn(BaseModel):
-    reason: str
+    reason: str = ""
 
 
 class ExpenseIn(BaseModel):
@@ -142,10 +142,8 @@ def reverse(entry_id: int, body: ReverseIn, user: User = Depends(require_perm("f
     e = db.get(JournalEntry, entry_id)
     if not e:
         raise HTTPException(404, "Entry not found")
-    if not body.reason.strip():
-        raise HTTPException(400, "A reason is required for every reversal")
     try:
-        rev = reverse_journal(db, e, body.reason, user)
+        rev = reverse_journal(db, e, body.reason.strip() or "Reversed", user)
     except ValueError as ex:
         raise HTTPException(400, str(ex))
     db.commit()
