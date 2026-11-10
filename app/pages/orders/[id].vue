@@ -289,7 +289,7 @@ async function recordAttempt() {
         <template #body>
           <div class="space-y-3">
             <UAlert v-if="toStatus === 'CANCELLED'" color="error" variant="subtle" title="Cancellation requires a reason and releases reserved stock." />
-            <UAlert v-else-if="toStatus === 'DELIVERED'" color="warning" variant="subtle" title="Marking delivered consumes reserved stock. Delivery should normally be confirmed from Dispatch." />
+            <UAlert v-else-if="toStatus === 'DELIVERED'" color="warning" variant="subtle" title="Marks the order delivered right away, skipping any remaining steps. Stock is consumed and COD becomes pending. A note is required if steps are skipped." />
             <USelect v-model="toStatus" placeholder="Move the order to..." :items="nexts.map(s => ({ label: titleize(s), value: s }))" class="w-full" />
             <UFormField label="Note / reason"><UTextarea v-model="note" class="w-full" :rows="2" /></UFormField>
           </div>

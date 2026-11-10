@@ -65,3 +65,8 @@ export function statusColor(status: string): string {
   if (['READY_FOR_DISPATCH', 'READY_FOR_APPROVAL', 'PENDING_REVIEW', 'CONVERTED'].includes(s)) return 'primary'
   return 'neutral'
 }
+
+for (const st of ['CONFIRMED', 'PENDING_CUSTOMER_CONFIRMATION', 'CUSTOMER_CONFIRMED', 'PROCESSING', 'READY_FOR_DISPATCH', 'DISPATCHED', 'IN_TRANSIT', 'DELIVERY_FAILED']) {
+  const l = ORDER_TRANSITIONS[st]
+  if (!l.includes('DELIVERED')) l.splice(l[l.length - 1] === 'CANCELLED' ? l.length - 1 : l.length, 0, 'DELIVERED')
+}
