@@ -25,18 +25,24 @@ onMounted(load)
 // record collection
 const orders = ref<any[]>([])
 const showRecord = ref(false)
-const form = reactive({ order_id: 0, collected_naira: '', method: 'CASH' })
+const form = reactive({ order_id: 0 })
 
 async function openRecord() {
+  form.order_id = 0
   showRecord.value = true
-  try { orders.value = await api('/orders?status=DELIVERED') } catch {}
+  try {
+    // only delivered COD orders that have no collection yet
+    const [delivered, all] = await Promise.all([api('/orders?status=DELIVERED'), api('/cod/collections')])
+    const done = new Set((all as any[]).map(c => c.order_id))
+    orders.value = (delivered as any[]).filter(o => o.payment_method === 'COD' && !done.has(o.id))
+  } catch {}
 }
 
 async function record() {
   saving.value = true
   try {
-    await api('/cod/collections', { method: 'POST', body: { order_id: form.order_id, collected_kobo: toKobo(form.collected_naira), method: form.method } })
-    useToast().add({ title: 'Collection recorded', description: 'Pending verification by finance.', color: 'success' })
+    await api('/cod/collections', { method: 'POST', body: { order_id: form.order_id } })
+    useToast().add({ title: 'Collection recorded', description: 'The expected amount is recorded and the order is awaiting settlement.', color: 'success' })
     showRecord.value = false
     await load()
   } catch (e) {
@@ -174,10 +180,8 @@ async function confirmHandover(h: any) {
           <UFormField label="Delivered COD order">
             <USelect placeholder="Choose..." @update:model-value="(v: any) => { form.order_id = v }" :model-value="form.order_id || undefined" class="w-full" :items="orders.map(o => ({ label: `${o.reference} · ${o.customer_name} · expected ${fmtNaira(o.cod_amount_kobo)}`, value: o.id }))" />
           </UFormField>
-          <UFormField label="Amount collected (₦)"><UInput v-model="form.collected_naira" class="w-full" /></UFormField>
-          <UFormField label="Method">
-            <USelect v-model="form.method" class="w-full" :items="[{ label: 'Cash', value: 'CASH' }, { label: 'Bank transfer', value: 'BANK_TRANSFER' }, { label: 'Digital', value: 'DIGITAL' }]" />
-          </UFormField>
+          <UAlert v-if="!orders.length" color="neutral" variant="subtle" icon="i-lucide-check-check" title="Nothing to record" description="Every delivered COD order has already been collected." />
+          <UAlert v-else color="info" variant="subtle" icon="i-lucide-banknote" description="The expected COD amount is recorded as collected, and the order moves to awaiting settlement." />
         </div>
       </template>
       <template #footer>

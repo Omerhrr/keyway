@@ -395,7 +395,16 @@ def vendor_record(vendor_id: int, date_from: str = "", date_to: str = "",
                           "sku": i.sku_snapshot, "qty": i.qty, "unit_price_kobo": i.unit_price_kobo,
                           "line_total_kobo": 0 if i.is_gift else i.line_total_kobo, "is_gift": i.is_gift,
                           "line_discount_kobo": i.discount_kobo})
-    earned = sum(x["net_kobo"] for x in sales)
+    # Charges added on a settlement that are not tied to one order still come off what the vendor earned.
+    oq = db.query(Charge).filter(Charge.vendor_id == vendor_id, Charge.order_id.is_(None), Charge.status != "REVERSED")
+    if start:
+        oq = oq.filter(Charge.created_at >= start)
+    if end:
+        oq = oq.filter(Charge.created_at < end)
+    other_charges = sum(c.amount_kobo for c in oq.all())
+    s["other_charges_kobo"] = other_charges
+    s["charges_kobo"] += other_charges
+    earned = sum(x["net_kobo"] for x in sales) - other_charges
 
     pq = db.query(Payment).filter(Payment.vendor_id == vendor_id)
     if start:

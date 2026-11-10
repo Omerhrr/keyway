@@ -229,7 +229,7 @@ async function addContact() {
         <div class="grid grid-cols-2 lg:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr_auto_1fr] gap-x-2 gap-y-3 items-center">
           <div><p class="text-xs text-zinc-500">Collected from customers</p><p class="text-lg sm:text-xl font-bold tabular-nums">{{ fmtNaira(s.collected_kobo) }}</p><p class="text-[11px] text-zinc-400">includes delivery fees</p></div>
           <span class="hidden lg:block text-zinc-300 text-xl">−</span>
-          <div><p class="text-xs text-zinc-500">Our charges</p><p class="text-lg sm:text-xl font-bold tabular-nums text-amber-600">{{ fmtNaira(s.charges_kobo) }}</p></div>
+          <div><p class="text-xs text-zinc-500">Our charges</p><p class="text-lg sm:text-xl font-bold tabular-nums text-amber-600">{{ fmtNaira(s.charges_kobo) }}</p><p v-if="s.other_charges_kobo" class="text-[11px] text-zinc-400">includes {{ fmtNaira(s.other_charges_kobo) }} added on settlements</p></div>
           <span class="hidden lg:block text-zinc-300 text-xl">=</span>
           <div><p class="text-xs text-zinc-500">Earned by vendor</p><p class="text-lg sm:text-xl font-bold tabular-nums">{{ fmtNaira(s.earned_kobo) }}</p></div>
           <span class="hidden lg:block text-zinc-300 text-xl">−</span>

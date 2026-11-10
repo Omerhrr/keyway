@@ -127,6 +127,9 @@ def record_collection(body: CollectionIn, user: User = Depends(require_perm("cod
         raise HTTPException(404, "Order not found")
     if o.payment_method != "COD":
         raise HTTPException(400, "Order is not a COD order")
+    already = db.query(CODCollection).filter(CODCollection.order_id == o.id).first()
+    if already:
+        raise HTTPException(400, f"{o.reference} has already been collected ({already.collected_kobo / 100:,.0f} NGN recorded). It cannot be recorded twice.")
     if body.collected_kobo is None:
         # Default: the expected COD amount is what was collected -> recorded and awaiting settlement.
         if o.status not in COLLECTABLE_ORDER_STATUSES:
@@ -143,8 +146,8 @@ def record_collection(body: CollectionIn, user: User = Depends(require_perm("cod
     if body.rider_id and not db.get(Rider, body.rider_id):
         raise HTTPException(400, "Unknown rider")
     existing = db.query(CODCollection).filter(CODCollection.order_id == o.id).first()
-    if existing and (existing.verified_at is not None or existing.status == "VERIFIED"):
-        raise HTTPException(400, "A verified collection already exists for this order")
+    if existing:
+        raise HTTPException(400, f"{o.reference} has already been collected ({existing.collected_kobo / 100:,.0f} NGN recorded). It cannot be recorded twice.")
     c = existing or CODCollection(order_id=o.id, expected_kobo=o.cod_amount_kobo)
     c.collected_kobo = body.collected_kobo
     c.method = body.method
