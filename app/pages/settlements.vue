@@ -30,6 +30,7 @@ async function build() {
   } finally { saving.value = false }
 }
 
+const { busy: exporting, copy: copySel, pdf: pdfSel, excel: excelSel } = useSettlementExport()
 const picked = ref<number[]>([])
 const payable = computed(() => settlements.value.filter((x: any) => ['APPROVED', 'PARTIALLY_PAID'].includes(x.status)))
 const pickedRows = computed(() => payable.value.filter((x: any) => picked.value.includes(x.id))
@@ -51,13 +52,16 @@ function open(s: any) { selected.value = s; showDetail.value = true }
       </template>
     </PageHeader>
 
-    <div v-if="payable.length" class="flex flex-wrap items-center gap-2 mb-3 rounded-xl border border-primary-200 dark:border-primary-900 bg-primary-50/50 dark:bg-primary-950/20 px-3 py-2">
+    <div v-if="settlements.length" class="flex flex-wrap items-center gap-2 mb-3 rounded-xl border border-primary-200 dark:border-primary-900 bg-primary-50/50 dark:bg-primary-950/20 px-3 py-2">
       <p class="text-sm text-zinc-600 dark:text-zinc-300 mr-auto">
-        <template v-if="picked.length"><b>{{ picked.length }}</b> selected · <b>{{ fmtNaira(pickedTotal) }}</b> to pay</template>
-        <template v-else>{{ payable.length }} approved settlement{{ payable.length === 1 ? '' : 's' }} waiting for payment. Tick the ones to pay together.</template>
+        <template v-if="picked.length"><b>{{ picked.length }}</b> selected<template v-if="pickedRows.length"> · <b>{{ fmtNaira(pickedTotal) }}</b> payable now</template></template>
+        <template v-else>Tick settlements to pay them together, or to copy, print or export them.</template>
       </p>
-      <UButton size="xs" variant="ghost" color="neutral" @click="picked = picked.length === payable.length ? [] : payable.map((x: any) => x.id)">{{ picked.length === payable.length ? 'Clear' : 'Select all' }}</UButton>
-      <UButton size="xs" icon="i-lucide-banknote" :disabled="!picked.length" @click="showBatch = true">Pay selected</UButton>
+      <UButton size="xs" variant="ghost" color="neutral" @click="picked = picked.length === settlements.length ? [] : settlements.map((x: any) => x.id)">{{ picked.length === settlements.length ? 'Clear' : 'Select all' }}</UButton>
+      <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-clipboard-copy" :disabled="!picked.length || exporting" @click="copySel(picked)">Copy</UButton>
+      <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-printer" :disabled="!picked.length || exporting" @click="pdfSel(picked)">PDF</UButton>
+      <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-file-spreadsheet" :disabled="!picked.length || exporting" @click="excelSel(picked)">Excel</UButton>
+      <UButton size="xs" icon="i-lucide-banknote" :disabled="!pickedRows.length" @click="showBatch = true">Pay selected</UButton>
     </div>
 
     <DataTable export-title="Settlements" :columns="[
@@ -76,7 +80,7 @@ function open(s: any) { selected.value = s; showDetail.value = true }
     }))" :loading="loading" clickable empty-title="No settlements yet"
       empty-hint="Build one from verified collections and applied charges." @row-click="open">
       <template #sel="{ row }">
-        <UCheckbox v-if="['APPROVED', 'PARTIALLY_PAID'].includes(row.status)" :model-value="picked.includes(row.id)" @click.stop @update:model-value="toggle(row.id)" />
+        <UCheckbox :model-value="picked.includes(row.id)" @click.stop @update:model-value="toggle(row.id)" />
       </template>
       <template #reference="{ row }"><span class="font-mono font-semibold text-primary-600">{{ row.reference }}</span></template>
       <template #net="{ value }"><span class="font-bold">{{ value }}</span></template>

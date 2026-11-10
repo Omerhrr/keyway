@@ -41,6 +41,7 @@ const building = ref(false)
 const stlId = ref<number | null>(null)
 const showStl = ref(false)
 const openStl = computed(() => (rec.value?.settlements || []).filter((x: any) => x.status !== 'PAID' && x.status !== 'REVERSED'))
+const { busy: exporting, copy: copySel, pdf: pdfSel, excel: excelSel } = useSettlementExport()
 const picked = ref<number[]>([])
 const payableStl = computed(() => openStl.value.filter((x: any) => ['APPROVED', 'PARTIALLY_PAID'].includes(x.status)))
 const pickedRows = computed(() => payableStl.value.filter((x: any) => picked.value.includes(x.id))
@@ -257,8 +258,7 @@ async function addContact() {
         <div v-if="openStl.length" class="mt-3 pt-3 border-t border-primary-100 dark:border-primary-900 space-y-1.5">
           <p class="text-xs text-zinc-500">Open settlements</p>
           <div v-for="x in openStl" :key="x.id" class="flex items-center gap-2">
-            <UCheckbox v-if="['APPROVED', 'PARTIALLY_PAID'].includes(x.status)" :model-value="picked.includes(x.id)" @update:model-value="toggleStl(x.id)" />
-            <span v-else class="w-4" />
+            <UCheckbox :model-value="picked.includes(x.id)" @update:model-value="toggleStl(x.id)" />
             <button type="button" class="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-left hover:border-primary-400" @click="openSettlement(x)">
               <UTooltip :ui="{ content: 'max-w-sm h-auto whitespace-normal py-2' }">
                 <span class="font-mono font-semibold text-primary-600 text-sm">{{ x.reference }}</span>
@@ -268,9 +268,12 @@ async function addContact() {
               <span class="text-sm font-semibold tabular-nums ml-auto">{{ fmtNaira(x.net_kobo - x.paid_kobo) }} <span class="text-xs font-normal text-zinc-400">to pay</span></span>
             </button>
           </div>
-          <div v-if="payableStl.length > 1" class="flex items-center gap-2 pt-1">
-            <UButton size="xs" variant="ghost" color="neutral" @click="picked = picked.length === payableStl.length ? [] : payableStl.map((x: any) => x.id)">{{ picked.length === payableStl.length ? 'Clear' : 'Select all approved' }}</UButton>
-            <UButton size="xs" icon="i-lucide-banknote" :disabled="!picked.length" @click="showBatch = true">Pay selected ({{ picked.length }})</UButton>
+          <div class="flex flex-wrap items-center gap-2 pt-1">
+            <UButton size="xs" variant="ghost" color="neutral" @click="picked = picked.length === openStl.length ? [] : openStl.map((x: any) => x.id)">{{ picked.length === openStl.length ? 'Clear' : 'Select all' }}</UButton>
+            <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-clipboard-copy" :disabled="!picked.length || exporting" @click="copySel(picked)">Copy</UButton>
+            <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-printer" :disabled="!picked.length || exporting" @click="pdfSel(picked)">PDF</UButton>
+            <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-file-spreadsheet" :disabled="!picked.length || exporting" @click="excelSel(picked)">Excel</UButton>
+            <UButton size="xs" icon="i-lucide-banknote" :disabled="!pickedRows.length" @click="showBatch = true">Pay selected ({{ pickedRows.length }})</UButton>
           </div>
         </div>
       </div>
