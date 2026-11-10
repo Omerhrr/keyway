@@ -79,7 +79,7 @@ def ensure_cod_pending(db, order, delivery_id=None, rider_id=None, actor=None):
 
 class CollectionIn(BaseModel):
     order_id: int
-    collected_kobo: int
+    collected_kobo: int | None = None   # leave out to collect the expected COD amount
     method: str = "CASH"
     note: str = ""
     rider_id: int | None = None
@@ -127,6 +127,13 @@ def record_collection(body: CollectionIn, user: User = Depends(require_perm("cod
         raise HTTPException(404, "Order not found")
     if o.payment_method != "COD":
         raise HTTPException(400, "Order is not a COD order")
+    if body.collected_kobo is None:
+        # Default: the expected COD amount is what was collected -> recorded and awaiting settlement.
+        if o.status not in COLLECTABLE_ORDER_STATUSES:
+            raise HTTPException(400, f"Cash cannot be collected for an order in status {o.status}")
+        c = ensure_cod_pending(db, o, actor=user)
+        db.commit()
+        return serialize(c)
     if body.collected_kobo < 0:
         raise HTTPException(400, "Collected amount cannot be negative")
     if body.method not in COD_METHODS:

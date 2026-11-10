@@ -94,16 +94,15 @@ async function dispatchOrder() {
 
 // record COD
 const showCod = ref(false)
-const codForm = reactive({ collected_naira: '', method: 'CASH' })
 
 async function recordCod() {
   saving.value = true
   try {
     await api('/cod/collections', {
       method: 'POST',
-      body: { order_id: order.value.id, collected_kobo: toKobo(codForm.collected_naira), method: codForm.method },
+      body: { order_id: order.value.id },
     })
-    useToast().add({ title: 'COD recorded', description: 'Awaiting finance verification before it becomes vendor funds.', color: 'success' })
+    useToast().add({ title: 'COD recorded', description: 'The expected amount is recorded and the order is awaiting settlement.', color: 'success' })
     showCod.value = false
     await load()
   } catch (e) {
@@ -147,7 +146,7 @@ async function recordAttempt() {
         <UButton v-if="canOpen('/confirmations') && ['CONFIRMED', 'PENDING_CUSTOMER_CONFIRMATION', 'CUSTOMER_CONFIRMED'].includes(order.status)" icon="i-lucide-phone-call" color="info" variant="soft" @click="showConfirm = true">Record confirmation</UButton>
         <UButton icon="i-lucide-printer" color="neutral" variant="outline" @click="printOrder">Print PDF</UButton>
         <UButton v-if="canOpen('/dispatch') && order.status === 'READY_FOR_DISPATCH'" icon="i-lucide-truck" @click="openDispatch">Dispatch</UButton>
-        <UButton v-if="canOpen('/cod') && order.status === 'DELIVERED' && order.payment_method === 'COD'" icon="i-lucide-banknote" color="warning" variant="soft" @click="showCod = true">Record COD</UButton>
+        <UButton v-if="canOpen('/cod') && order.status === 'DELIVERED' && order.payment_method === 'COD' && !order.collections?.length" icon="i-lucide-banknote" color="warning" variant="soft" @click="showCod = true">Record COD</UButton>
         <UButton v-for="n in nexts.filter(s => s === 'CANCELLED')" :key="n" icon="i-lucide-ban" color="error" variant="soft" @click="askStatus(n)">Cancel order</UButton>
       </div>
 
@@ -337,13 +336,7 @@ async function recordAttempt() {
       <UModal v-model:open="showCod" title="Record COD collection">
         <template #body>
           <div class="space-y-3">
-            <UAlert color="info" variant="subtle" title="Expected COD" :description="fmtNaira(order.cod_amount_kobo) + ' - actual amount is stored separately and verified by finance.'" />
-            <UFormField label="Amount collected (₦)"><UInput v-model="codForm.collected_naira" class="w-full" /></UFormField>
-            <UFormField label="Method">
-              <USelect v-model="codForm.method" class="w-full" :items="[
-                { label: 'Cash', value: 'CASH' }, { label: 'Bank transfer', value: 'BANK_TRANSFER' }, { label: 'Digital payment', value: 'DIGITAL' },
-              ]" />
-            </UFormField>
+            <UAlert color="info" variant="subtle" icon="i-lucide-banknote" :title="`${fmtNaira(order.cod_amount_kobo)} will be recorded as collected`" description="The expected COD amount is taken as the amount collected, and the order moves to awaiting settlement." />
           </div>
         </template>
         <template #footer>
