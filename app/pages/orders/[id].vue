@@ -146,7 +146,8 @@ async function recordAttempt() {
         <UButton v-if="canOpen('/confirmations') && ['CONFIRMED', 'PENDING_CUSTOMER_CONFIRMATION', 'CUSTOMER_CONFIRMED'].includes(order.status)" icon="i-lucide-phone-call" color="info" variant="soft" @click="showConfirm = true">Record confirmation</UButton>
         <UButton icon="i-lucide-printer" color="neutral" variant="outline" @click="printOrder">Print PDF</UButton>
         <UButton v-if="canOpen('/dispatch') && order.status === 'READY_FOR_DISPATCH'" icon="i-lucide-truck" @click="openDispatch">Dispatch</UButton>
-        <UButton v-if="canOpen('/cod') && order.status === 'DELIVERED' && order.payment_method === 'COD' && !order.collections?.length" icon="i-lucide-banknote" color="warning" variant="soft" @click="showCod = true">Record COD</UButton>
+        <UButton v-if="canOpen('/cod') && order.payment_method === 'COD' && ['DELIVERED', 'RETURN_REQUESTED'].includes(order.status) && !order.collections?.length" icon="i-lucide-banknote" color="warning" variant="soft" @click="showCod = true">Record COD</UButton>
+        <UButton v-else-if="canOpen('/cod') && order.payment_method === 'COD' && order.collections?.length" icon="i-lucide-badge-check" color="success" variant="soft" @click="showCod = true">COD collected {{ fmtNaira(order.collections.reduce((a: number, c: any) => a + c.collected_kobo, 0)) }}</UButton>
         <UButton v-for="n in nexts.filter(s => s === 'CANCELLED')" :key="n" icon="i-lucide-ban" color="error" variant="soft" @click="askStatus(n)">Cancel order</UButton>
       </div>
 
@@ -333,16 +334,27 @@ async function recordAttempt() {
       </UModal>
 
       <!-- COD modal -->
-      <UModal v-model:open="showCod" title="Record COD collection">
+      <UModal v-model:open="showCod" :title="order.collections?.length ? 'COD collection' : 'Record COD collection'">
         <template #body>
-          <div class="space-y-3">
+          <div v-if="order.collections?.length" class="space-y-3">
+            <div v-for="c in order.collections" :key="c.id" class="rounded-lg border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-100 dark:divide-zinc-800 text-sm">
+              <div class="flex justify-between gap-3 px-3 py-2"><span class="text-zinc-500">Expected</span><span class="font-semibold tabular-nums">{{ fmtNaira(c.expected_kobo) }}</span></div>
+              <div class="flex justify-between gap-3 px-3 py-2"><span class="text-zinc-500">Collected</span><span class="font-semibold tabular-nums text-emerald-600">{{ fmtNaira(c.collected_kobo) }}</span></div>
+              <div class="flex justify-between gap-3 px-3 py-2"><span class="text-zinc-500">Method</span><span>{{ titleize(c.method) }}</span></div>
+              <div class="flex justify-between gap-3 px-3 py-2"><span class="text-zinc-500">Recorded</span><span>{{ fmtDateTime(c.collected_at) }}</span></div>
+              <div class="flex justify-between gap-3 px-3 py-2"><span class="text-zinc-500">Status</span><StatusBadge :status="c.status" /></div>
+            </div>
+            <UAlert color="success" variant="subtle" icon="i-lucide-check-check" title="Already collected" description="This order's cash is recorded and goes to the vendor through settlement. It can't be recorded twice." />
+            <UButton to="/cod" variant="link" size="xs" icon="i-lucide-arrow-right" trailing>Open COD</UButton>
+          </div>
+          <div v-else class="space-y-3">
             <UAlert color="info" variant="subtle" icon="i-lucide-banknote" :title="`${fmtNaira(order.cod_amount_kobo)} will be recorded as collected`" description="The expected COD amount is taken as the amount collected, and the order moves to awaiting settlement." />
           </div>
         </template>
         <template #footer>
           <div class="flex justify-end gap-2 w-full">
-            <UButton variant="ghost" color="neutral" @click="showCod = false">Cancel</UButton>
-            <UButton :loading="saving" @click="recordCod">Record</UButton>
+            <UButton variant="ghost" color="neutral" @click="showCod = false">{{ order.collections?.length ? 'Close' : 'Cancel' }}</UButton>
+            <UButton v-if="!order.collections?.length" :loading="saving" @click="recordCod">Record</UButton>
           </div>
         </template>
       </UModal>
