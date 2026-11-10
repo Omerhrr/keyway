@@ -415,7 +415,17 @@ def vendor_record(vendor_id: int, date_from: str = "", date_to: str = "",
     for st in sq.order_by(Settlement.id.desc()).all():
         refs = [r[0] for r in db.query(Order.reference).join(SettlementItem, SettlementItem.order_id == Order.id)
                 .filter(SettlementItem.settlement_id == st.id, SettlementItem.type == "COLLECTION").all()]
-        settlements.append({"id": st.id, "reference": st.reference, "date": st.created_at, "gross_kobo": st.gross_kobo,
+        notes = []
+        for ref in refs:
+            so = db.query(Order).filter(Order.reference == ref).first()
+            if not so:
+                continue
+            sc = db.get(Customer, so.customer_id)
+            sits = db.query(OrderItem).filter(OrderItem.order_id == so.id).order_by(OrderItem.id).all()
+            got = sum(c.collected_kobo for c in db.query(CODCollection).filter(CODCollection.order_id == so.id).all())
+            chg = sum(c.amount_kobo for c in db.query(Charge).filter(Charge.order_id == so.id, Charge.status != "REVERSED").all())
+            notes.append(f"{ref} · {sc.name if sc else 'Customer'} · {_narrate(sits, so)} · collected {_naira(got)}, our charges {_naira(chg)}")
+        settlements.append({"id": st.id, "notes": notes, "reference": st.reference, "date": st.created_at, "gross_kobo": st.gross_kobo,
                             "charges_kobo": st.charges_kobo, "net_kobo": st.net_kobo, "paid_kobo": st.paid_kobo,
                             "status": st.status, "orders": refs})
 

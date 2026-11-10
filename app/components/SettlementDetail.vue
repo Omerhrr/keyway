@@ -6,6 +6,7 @@ const emit = defineEmits<{ changed: [] }>()
 const saving = ref(false)
 const detail = ref<any>(null)
 const selected = computed(() => detail.value || {})
+const canCharge = computed(() => ['READY_FOR_APPROVAL', 'APPROVED', 'PARTIALLY_PAID'].includes(detail.value?.status))
 
 async function fetchDetail() { if (props.id) detail.value = await api(`/settlements/${props.id}`) }
 watch(open, async (o) => {
@@ -81,7 +82,7 @@ async function addCharge() {
             <div class="flex justify-between gap-3 px-4 py-3 bg-primary-50/60 dark:bg-primary-950/30 rounded-b-xl"><span class="font-semibold">Net payable to vendor</span><span class="text-lg font-bold tabular-nums text-primary-700 dark:text-primary-400">{{ fmtNaira(detail.net_kobo) }}</span></div>
             <div class="flex justify-between gap-3 px-4 py-2.5"><span class="text-zinc-500">Paid so far</span><span class="font-semibold tabular-nums text-emerald-600">{{ fmtNaira(detail.paid_kobo) }}</span></div>
           </div>
-          <p v-if="detail?.status !== 'READY_FOR_APPROVAL'" class="text-xs text-zinc-400">Our charges can only be added before the settlement is approved.</p>
+          <p v-if="!canCharge" class="text-xs text-zinc-400">This settlement is fully paid, so charges can no longer be added.</p>
           <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-x-auto">
             <table class="w-full text-sm">
               <thead><tr class="bg-zinc-50 dark:bg-zinc-800/60 text-[11px] uppercase text-zinc-400">
@@ -94,7 +95,7 @@ async function addCharge() {
                   <td class="px-3 py-2">
                     <p class="font-mono text-xs">{{ i.order_reference || '-' }}</p>
                     <p v-if="i.note" class="text-[11px] text-zinc-400 max-w-[14rem] whitespace-normal leading-snug">{{ i.note }}</p>
-                    <button v-if="i.type === 'COLLECTION' && detail?.status === 'READY_FOR_APPROVAL' && i.order_id" type="button"
+                    <button v-if="i.type === 'COLLECTION' && canCharge && i.order_id" type="button"
                             class="mt-1 text-[11px] font-medium text-amber-600 hover:underline inline-flex items-center gap-0.5"
                             @click="openCharge({ id: i.order_id, ref: i.order_reference })"><UIcon name="i-lucide-plus" class="w-3 h-3" />Add our charge to this order</button>
                   </td>
@@ -107,12 +108,11 @@ async function addCharge() {
         </div>
       </template>
       <template #footer>
-        <div class="flex justify-between w-full">
-          <div v-if="detail?.status === 'READY_FOR_APPROVAL'" class="flex gap-2">
-            <UButton :loading="saving" color="primary" variant="soft" icon="i-lucide-check-check" @click="approve">Approve settlement</UButton>
-            <UButton color="warning" variant="soft" icon="i-lucide-plus" @click="openCharge()">Add our charge</UButton>
+        <div class="flex flex-wrap justify-between gap-2 w-full">
+          <div class="flex flex-wrap gap-2">
+            <UButton v-if="detail?.status === 'READY_FOR_APPROVAL'" :loading="saving" color="primary" variant="soft" icon="i-lucide-check-check" @click="approve">Approve settlement</UButton>
+            <UButton v-if="canCharge" color="warning" variant="soft" icon="i-lucide-plus" @click="openCharge()">Add our charge</UButton>
           </div>
-          <span v-else />
           <UButton v-if="['APPROVED', 'PARTIALLY_PAID'].includes(detail?.status)" icon="i-lucide-banknote" @click="openPay">Record payment</UButton>
         </div>
       </template>

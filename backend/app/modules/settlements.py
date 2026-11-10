@@ -125,7 +125,11 @@ def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlemen
     return serialize(s)
 
 
+CHARGEABLE = ("READY_FOR_APPROVAL", "APPROVED", "PARTIALLY_PAID")
+
+
 class AddChargeIn(BaseModel):
+    order_id: int | None = None   # charge a specific order in this settlement (optional)
     charge_type: str = "OTHER"
     amount_kobo: int
     reason: str
@@ -138,20 +142,23 @@ def add_settlement_charge(settlement_id: int, body: AddChargeIn, user: User = De
     s = db.get(Settlement, settlement_id)
     if not s:
         raise HTTPException(404, "Settlement not found")
-    if s.status != "READY_FOR_APPROVAL":
-        raise HTTPException(400, "Charges can only be added before the settlement is approved")
+    if s.status not in CHARGEABLE:
+        raise HTTPException(400, "Charges can only be added until the settlement is fully paid")
     if body.charge_type not in CHARGE_TYPES:
         raise HTTPException(400, "Unknown charge type")
     if body.amount_kobo <= 0:
         raise HTTPException(400, "Enter the charge amount")
     if not body.reason.strip():
         raise HTTPException(400, "Every charge needs a recorded reason")
-    if s.net_kobo - body.amount_kobo < 0:
-        raise HTTPException(400, "This charge is more than the vendor is owed in this settlement")
+    if s.net_kobo - body.amount_kobo < max(0, s.paid_kobo):
+        raise HTTPException(400, "This charge is more than what is still unpaid on this settlement")
     from app.modules.ledger import get_account_by_subtype, post_journal
-    ch = apply_charge(db, vendor_id=s.vendor_id, order_id=None, charge_type=body.charge_type,
+    if body.order_id and not db.query(SettlementItem).filter(SettlementItem.settlement_id == s.id,
+                                                               SettlementItem.order_id == body.order_id).first():
+        raise HTTPException(400, "That order is not part of this settlement")
+    ch = apply_charge(db, vendor_id=s.vendor_id, order_id=body.order_id or None, charge_type=body.charge_type,
                       amount_kobo=body.amount_kobo, reason=body.reason.strip(), actor=user, commit=False)
-    db.add(SettlementItem(settlement_id=s.id, order_id=None, charge_id=ch.id, type="CHARGE",
+    db.add(SettlementItem(settlement_id=s.id, order_id=ch.order_id, charge_id=ch.id, type="CHARGE",
                           gross_kobo=0, deduction_kobo=ch.amount_kobo, net_kobo=-ch.amount_kobo))
     s.charges_kobo += ch.amount_kobo
     s.net_kobo -= ch.amount_kobo
@@ -181,7 +188,13 @@ def get_settlement(settlement_id: int, user: User = Depends(require_settlement_v
     out_items = []
     for i in items:
         o = db.get(Order, i.order_id) if i.order_id else None
-        out_items.append(serialize(i, order_reference=o.reference if o else None))
+        note = ""
+        if o and i.type == "COLLECTION":
+            from app.modules.vendors import _narrate
+            from app.modules.orders_models import OrderItem, Customer
+            cu = db.get(Customer, o.customer_id)
+            note = f"{cu.name if cu else ''} · {_narrate(db.query(OrderItem).filter(OrderItem.order_id == o.id).order_by(OrderItem.id).all(), o)}"
+        out_items.append(serialize(i, order_reference=o.reference if o else None, note=note))
     return serialize(s, vendor_name=v.name if v else None, items=out_items, payments=serialize_list(payments))
 
 
