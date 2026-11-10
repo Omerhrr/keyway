@@ -17,3 +17,6 @@ html, body {
 
 /* order numbers and codes never break across lines */
 td .font-mono, th .font-mono { white-space: nowrap; }
+
+/* Field labels carry a hover note (see plugins/hints.client.ts) */
+label[for]:hover { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }

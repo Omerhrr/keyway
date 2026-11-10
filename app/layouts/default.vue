@@ -9,6 +9,14 @@ const { canOpen } = useModules()
 
 watch(() => user.value?.id, (id) => { if (id) startPolling() }, { immediate: true })
 
+// Desktop sidebar can be tucked away; the choice is remembered on this device.
+const sideHidden = ref(false)
+onMounted(() => { try { sideHidden.value = localStorage.getItem('kw-side-hidden') === '1' } catch {} })
+function toggleSide() {
+  sideHidden.value = !sideHidden.value
+  try { localStorage.setItem('kw-side-hidden', sideHidden.value ? '1' : '0') } catch {}
+}
+
 const bellOpen = ref(false)
 const bellOpenMobile = ref(false)
 const showInstallHelp = ref(false)
@@ -88,13 +96,14 @@ async function installApp() {
 <template>
   <div class="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950">
     <!-- Desktop sidebar -->
-    <aside class="hidden lg:flex flex-col fixed inset-y-0 left-0 w-60 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 z-30">
+    <aside class="hidden flex-col fixed inset-y-0 left-0 w-60 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 z-30" :class="sideHidden ? '' : 'lg:flex'">
       <div class="flex items-center gap-2.5 px-5 h-16 border-b border-zinc-200 dark:border-zinc-800">
         <BrandLogo :size="32" />
         <div>
           <p class="font-bold text-lg leading-none text-zinc-900 dark:text-white">{{ brand.brand_name }}</p>
-          <p class="text-[11px] text-zinc-500 truncate max-w-[150px]">{{ brand.tagline }}</p>
+          <p class="text-[11px] text-zinc-500 truncate max-w-[110px]">{{ brand.tagline }}</p>
         </div>
+        <UButton class="ml-auto" icon="i-lucide-panel-left-close" variant="ghost" color="neutral" size="xs" aria-label="Hide the menu" title="Hide the menu" @click="toggleSide" />
       </div>
       <nav class="flex-1 overflow-y-auto thin-scroll px-3 py-4 space-y-5">
         <div v-for="g in visibleGroups" :key="g.title">
@@ -193,14 +202,16 @@ async function installApp() {
     </USlideover>
 
     <!-- Main -->
-    <main class="flex-1 lg:pl-60 flex flex-col">
+    <main class="flex-1 flex flex-col" :class="sideHidden ? '' : 'lg:pl-60'">
       <!-- Offline banner -->
       <div v-if="!online" class="bg-amber-500 text-white text-sm font-medium text-center py-1.5 px-4">
         <UIcon name="i-lucide-wifi-off" class="w-4 h-4 inline-block align-[-2px] mr-1" />
         You are offline - showing cached data. Changes will fail until the connection returns.
       </div>
       <!-- Desktop topbar: theme, notifications + install -->
-      <div class="hidden lg:flex h-12 items-center justify-end gap-2 px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur sticky top-0 z-20">
+      <div class="hidden lg:flex h-12 items-center gap-2 px-6 border-b border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur sticky top-0 z-20">
+        <UButton v-if="sideHidden" icon="i-lucide-panel-left-open" size="xs" variant="soft" color="neutral" aria-label="Show the menu" title="Show the menu" @click="toggleSide">Menu</UButton>
+        <div class="flex-1" />
         <UButton :icon="isDark ? 'i-lucide-sun' : 'i-lucide-moon'" size="xs" variant="ghost" color="neutral"
                  :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'" @click="toggleTheme" />
         <UButton v-if="installable" icon="i-lucide-download" size="xs" variant="soft" color="primary" @click="installApp">
