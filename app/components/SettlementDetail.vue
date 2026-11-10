@@ -48,14 +48,15 @@ async function pay() {
 const showCharge = ref(false)
 const chargeTypes = ['OTHER', 'STORAGE', 'SPECIAL_HANDLING', 'RETURN_HANDLING', 'ORDER_PROCESSING', 'COD_HANDLING', 'WAYBILL']
 const chargeForm = reactive({ charge_type: 'OTHER', amount: '', reason: '' })
-function openCharge() { chargeForm.charge_type = 'OTHER'; chargeForm.amount = ''; chargeForm.reason = ''; showCharge.value = true }
+const chargeOrder = ref<{ id: number, ref: string } | null>(null)
+function openCharge(order?: { id: number, ref: string }) { chargeOrder.value = order || null; chargeForm.charge_type = 'OTHER'; chargeForm.amount = ''; chargeForm.reason = ''; showCharge.value = true }
 async function addCharge() {
   const amount = toKobo(chargeForm.amount)
   if (!amount || amount <= 0) { useToast().add({ title: 'Enter the charge amount', color: 'warning' }); return }
   if (!chargeForm.reason.trim()) { useToast().add({ title: 'Say why this charge applies', color: 'warning' }); return }
   saving.value = true
   try {
-    await api(`/settlements/${props.id}/charges`, { method: 'POST', body: { charge_type: chargeForm.charge_type, amount_kobo: amount, reason: chargeForm.reason } })
+    await api(`/settlements/${props.id}/charges`, { method: 'POST', body: { order_id: chargeOrder.value?.id || null, charge_type: chargeForm.charge_type, amount_kobo: amount, reason: chargeForm.reason } })
     useToast().add({ title: 'Charge added', color: 'success' })
     showCharge.value = false
     await fetchDetail(); emit('changed')
@@ -80,7 +81,8 @@ async function addCharge() {
             <div class="flex justify-between gap-3 px-4 py-3 bg-primary-50/60 dark:bg-primary-950/30 rounded-b-xl"><span class="font-semibold">Net payable to vendor</span><span class="text-lg font-bold tabular-nums text-primary-700 dark:text-primary-400">{{ fmtNaira(detail.net_kobo) }}</span></div>
             <div class="flex justify-between gap-3 px-4 py-2.5"><span class="text-zinc-500">Paid so far</span><span class="font-semibold tabular-nums text-emerald-600">{{ fmtNaira(detail.paid_kobo) }}</span></div>
           </div>
-          <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+          <p v-if="detail?.status !== 'READY_FOR_APPROVAL'" class="text-xs text-zinc-400">Our charges can only be added before the settlement is approved.</p>
+          <div class="rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-x-auto">
             <table class="w-full text-sm">
               <thead><tr class="bg-zinc-50 dark:bg-zinc-800/60 text-[11px] uppercase text-zinc-400">
                 <th class="px-3 py-2 text-left">Type</th><th class="px-3 py-2 text-left">Order</th>
@@ -89,7 +91,13 @@ async function addCharge() {
               <tbody>
                 <tr v-for="i in [...detail.items].sort((x, y) => (x.type === 'COLLECTION' ? 0 : 1) - (y.type === 'COLLECTION' ? 0 : 1))" :key="i.id" class="border-t border-zinc-100 dark:border-zinc-800">
                   <td class="px-3 py-2"><UBadge :color="i.type === 'COLLECTION' ? 'success' : 'warning'" variant="subtle" size="xs">{{ i.type }}</UBadge></td>
-                  <td class="px-3 py-2 font-mono text-xs">{{ i.order_reference || '-' }}</td>
+                  <td class="px-3 py-2">
+                    <p class="font-mono text-xs">{{ i.order_reference || '-' }}</p>
+                    <p v-if="i.note" class="text-[11px] text-zinc-400 max-w-[14rem] whitespace-normal leading-snug">{{ i.note }}</p>
+                    <button v-if="i.type === 'COLLECTION' && detail?.status === 'READY_FOR_APPROVAL' && i.order_id" type="button"
+                            class="mt-1 text-[11px] font-medium text-amber-600 hover:underline inline-flex items-center gap-0.5"
+                            @click="openCharge({ id: i.order_id, ref: i.order_reference })"><UIcon name="i-lucide-plus" class="w-3 h-3" />Add our charge to this order</button>
+                  </td>
                   <td class="px-3 py-2 text-right">{{ i.gross_kobo ? fmtNaira(i.gross_kobo) : '-' }}</td>
                   <td class="px-3 py-2 text-right pr-3 text-amber-600">{{ i.deduction_kobo ? `-${fmtNaira(i.deduction_kobo)}` : '-' }}</td>
                 </tr>
@@ -102,7 +110,7 @@ async function addCharge() {
         <div class="flex justify-between w-full">
           <div v-if="detail?.status === 'READY_FOR_APPROVAL'" class="flex gap-2">
             <UButton :loading="saving" color="primary" variant="soft" icon="i-lucide-check-check" @click="approve">Approve settlement</UButton>
-            <UButton color="warning" variant="soft" icon="i-lucide-plus" @click="openCharge">Add our charge</UButton>
+            <UButton color="warning" variant="soft" icon="i-lucide-plus" @click="openCharge()">Add our charge</UButton>
           </div>
           <span v-else />
           <UButton v-if="['APPROVED', 'PARTIALLY_PAID'].includes(detail?.status)" icon="i-lucide-banknote" @click="openPay">Record payment</UButton>
@@ -111,7 +119,7 @@ async function addCharge() {
     </UModal>
 
     <!-- add charge modal -->
-    <UModal v-model:open="showCharge" title="Add our charge to this settlement">
+    <UModal v-model:open="showCharge" :title="chargeOrder ? `Add our charge to order ${chargeOrder.ref}` : 'Add our charge to this settlement'">
       <template #body>
         <div class="space-y-3">
           <UAlert color="info" variant="subtle" icon="i-lucide-info" title="Deducted from what the vendor is owed" description="Use this for anything not already charged on the orders, such as storage or special handling. Every charge is recorded with its reason." />
