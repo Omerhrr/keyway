@@ -125,6 +125,26 @@ def apply_charge(db: Session, *, vendor_id: int, order_id: int | None, charge_ty
     return ch
 
 
+def ensure_order_charges(db: Session, order, actor=None) -> list[str]:
+    """Our own fees, applied automatically once an order is delivered (idempotent).
+    ORDER_PROCESSING for every delivered order, COD_HANDLING for COD orders, each only when a
+    pricing rule exists. Never duplicates a charge that is already on the order."""
+    done = []
+    wanted = ["ORDER_PROCESSING"] + (["COD_HANDLING"] if order.payment_method == "COD" else [])
+    for ctype in wanted:
+        has = (db.query(Charge).filter(Charge.order_id == order.id, Charge.charge_type == ctype,
+                                       Charge.status != "REVERSED").first())
+        if has or not find_rule(db, order.vendor_id, ctype):
+            continue
+        try:
+            apply_charge(db, vendor_id=order.vendor_id, order_id=order.id, charge_type=ctype,
+                         reason=f"{ctype.replace('_', ' ').title()} for {order.reference}", actor=actor, commit=False)
+            done.append(ctype)
+        except ValueError:
+            pass
+    return done
+
+
 @router.get("/rules")
 def list_rules(user: User = Depends(require_staff), db: Session = Depends(get_db)):
     rules = db.query(ChargeRule).order_by(ChargeRule.charge_type, ChargeRule.scope).all()

@@ -21,6 +21,8 @@ COLLECTABLE_ORDER_STATUSES = ("DISPATCHED", "IN_TRANSIT", "DELIVERED")
 def ensure_cod_pending(db, order, delivery_id=None, rider_id=None):
     """A delivered COD order always gets a PENDING_VERIFICATION collection record, no
     matter which endpoint marked it delivered. Delivery is never proof of cash."""
+    from app.modules.charges import ensure_order_charges
+    ensure_order_charges(db, order)
     if order.payment_method != "COD":
         return None
     exists = db.query(CODCollection).filter(CODCollection.order_id == order.id).first()

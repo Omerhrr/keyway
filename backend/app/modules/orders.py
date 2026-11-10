@@ -48,6 +48,14 @@ TRANSITIONS: dict[str, list[str]] = {
     "CANCELLED": [],
 }
 
+# "Mark delivered" can skip every step once the order is confirmed (e.g. handed over directly).
+for _st in ("CONFIRMED", "PENDING_CUSTOMER_CONFIRMATION", "CUSTOMER_CONFIRMED", "PROCESSING", "READY_FOR_DISPATCH",
+            "DISPATCHED", "IN_TRANSIT", "DELIVERY_FAILED"):
+    if "DELIVERED" not in TRANSITIONS[_st]:
+        TRANSITIONS[_st].insert(-1 if TRANSITIONS[_st][-1] == "CANCELLED" else len(TRANSITIONS[_st]), "DELIVERED")
+SKIPPABLE_TO_DELIVERED = ("CONFIRMED", "PENDING_CUSTOMER_CONFIRMATION", "CUSTOMER_CONFIRMED", "PROCESSING",
+                          "READY_FOR_DISPATCH", "DELIVERY_FAILED")
+
 
 class ManualOrderItem(BaseModel):
     product_id: int
@@ -587,6 +595,8 @@ def change_status(order_id: int, body: StatusIn, user: User = Depends(require_pe
     # Authorised exceptions: allow skipping customer confirmation with recorded reason (PRD rule)
     if to not in allowed and not (o.status in ("CONFIRMED", "CUSTOMER_CONFIRMED") and to == "READY_FOR_DISPATCH" and body.note.strip()):
         raise HTTPException(400, f"Cannot move order from {o.status} to {to}. Allowed: {', '.join(allowed) or 'none'}")
+    if to == "DELIVERED" and o.status in SKIPPABLE_TO_DELIVERED and not body.note.strip():
+        raise HTTPException(400, "Add a note saying why the usual steps were skipped")
     if to == "CANCELLED" and not body.note.strip():
         raise HTTPException(400, "A reason is required to cancel an order")
     from_status = o.status
