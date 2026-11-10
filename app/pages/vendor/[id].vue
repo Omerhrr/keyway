@@ -41,6 +41,13 @@ const building = ref(false)
 const stlId = ref<number | null>(null)
 const showStl = ref(false)
 const openStl = computed(() => (rec.value?.settlements || []).filter((x: any) => x.status !== 'PAID' && x.status !== 'REVERSED'))
+const picked = ref<number[]>([])
+const payableStl = computed(() => openStl.value.filter((x: any) => ['APPROVED', 'PARTIALLY_PAID'].includes(x.status)))
+const pickedRows = computed(() => payableStl.value.filter((x: any) => picked.value.includes(x.id))
+  .map((x: any) => ({ id: x.id, reference: x.reference, owed_kobo: x.net_kobo - x.paid_kobo })))
+const showBatch = ref(false)
+function toggleStl(id: number) { picked.value = picked.value.includes(id) ? picked.value.filter(x => x !== id) : [...picked.value, id] }
+function afterBatch() { picked.value = []; load() }
 function openSettlement(row: any) { stlId.value = row.id; showStl.value = true }
 async function buildSettlement() {
   building.value = true
@@ -249,14 +256,22 @@ async function addContact() {
         </div>
         <div v-if="openStl.length" class="mt-3 pt-3 border-t border-primary-100 dark:border-primary-900 space-y-1.5">
           <p class="text-xs text-zinc-500">Open settlements</p>
-          <button v-for="x in openStl" :key="x.id" type="button" class="w-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-left hover:border-primary-400" @click="openSettlement(x)">
-            <UTooltip :ui="{ content: 'max-w-sm h-auto whitespace-normal py-2' }">
-              <span class="font-mono font-semibold text-primary-600 text-sm">{{ x.reference }}</span>
-              <template #content><div class="space-y-1.5 text-xs"><p v-for="n in x.notes" :key="n">{{ n }}</p><p v-if="!x.notes?.length">No orders attached</p></div></template>
-            </UTooltip>
-            <StatusBadge :status="x.status" />
-            <span class="text-sm font-semibold tabular-nums ml-auto">{{ fmtNaira(x.net_kobo - x.paid_kobo) }} <span class="text-xs font-normal text-zinc-400">to pay</span></span>
-          </button>
+          <div v-for="x in openStl" :key="x.id" class="flex items-center gap-2">
+            <UCheckbox v-if="['APPROVED', 'PARTIALLY_PAID'].includes(x.status)" :model-value="picked.includes(x.id)" @update:model-value="toggleStl(x.id)" />
+            <span v-else class="w-4" />
+            <button type="button" class="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-left hover:border-primary-400" @click="openSettlement(x)">
+              <UTooltip :ui="{ content: 'max-w-sm h-auto whitespace-normal py-2' }">
+                <span class="font-mono font-semibold text-primary-600 text-sm">{{ x.reference }}</span>
+                <template #content><div class="space-y-1.5 text-xs"><p v-for="n in x.notes" :key="n">{{ n }}</p><p v-if="!x.notes?.length">No orders attached</p></div></template>
+              </UTooltip>
+              <StatusBadge :status="x.status" />
+              <span class="text-sm font-semibold tabular-nums ml-auto">{{ fmtNaira(x.net_kobo - x.paid_kobo) }} <span class="text-xs font-normal text-zinc-400">to pay</span></span>
+            </button>
+          </div>
+          <div v-if="payableStl.length > 1" class="flex items-center gap-2 pt-1">
+            <UButton size="xs" variant="ghost" color="neutral" @click="picked = picked.length === payableStl.length ? [] : payableStl.map((x: any) => x.id)">{{ picked.length === payableStl.length ? 'Clear' : 'Select all approved' }}</UButton>
+            <UButton size="xs" icon="i-lucide-banknote" :disabled="!picked.length" @click="showBatch = true">Pay selected ({{ picked.length }})</UButton>
+          </div>
         </div>
       </div>
 
@@ -380,6 +395,7 @@ async function addContact() {
       </div>
     </template>
 
+    <SettlementPayBatch v-model:open="showBatch" :rows="pickedRows" @changed="afterBatch" />
     <SettlementDetail v-model:open="showStl" :id="stlId" @changed="load" />
     <ReceiveStock v-model:open="showReceive" :vendors="rec ? [v] : []" :warehouses="warehouses" :vendor-id="Number(id)" :product-id="receiveProduct" @done="load" />
     <QuickProduct v-model:open="showAddProduct" :vendors="rec ? [v] : []" :vendor-id="Number(id)" @created="load" />

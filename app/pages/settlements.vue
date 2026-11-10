@@ -30,6 +30,14 @@ async function build() {
   } finally { saving.value = false }
 }
 
+const picked = ref<number[]>([])
+const payable = computed(() => settlements.value.filter((x: any) => ['APPROVED', 'PARTIALLY_PAID'].includes(x.status)))
+const pickedRows = computed(() => payable.value.filter((x: any) => picked.value.includes(x.id))
+  .map((x: any) => ({ id: x.id, reference: x.reference, vendor_name: x.vendor_name, owed_kobo: x.net_kobo - x.paid_kobo })))
+const pickedTotal = computed(() => pickedRows.value.reduce((a: number, r: any) => a + r.owed_kobo, 0))
+const showBatch = ref(false)
+function toggle(id: number) { picked.value = picked.value.includes(id) ? picked.value.filter(x => x !== id) : [...picked.value, id] }
+function afterBatch() { picked.value = []; load() }
 const selected = ref<any>(null)
 const showDetail = ref(false)
 function open(s: any) { selected.value = s; showDetail.value = true }
@@ -43,7 +51,17 @@ function open(s: any) { selected.value = s; showDetail.value = true }
       </template>
     </PageHeader>
 
+    <div v-if="payable.length" class="flex flex-wrap items-center gap-2 mb-3 rounded-xl border border-primary-200 dark:border-primary-900 bg-primary-50/50 dark:bg-primary-950/20 px-3 py-2">
+      <p class="text-sm text-zinc-600 dark:text-zinc-300 mr-auto">
+        <template v-if="picked.length"><b>{{ picked.length }}</b> selected · <b>{{ fmtNaira(pickedTotal) }}</b> to pay</template>
+        <template v-else>{{ payable.length }} approved settlement{{ payable.length === 1 ? '' : 's' }} waiting for payment. Tick the ones to pay together.</template>
+      </p>
+      <UButton size="xs" variant="ghost" color="neutral" @click="picked = picked.length === payable.length ? [] : payable.map((x: any) => x.id)">{{ picked.length === payable.length ? 'Clear' : 'Select all' }}</UButton>
+      <UButton size="xs" icon="i-lucide-banknote" :disabled="!picked.length" @click="showBatch = true">Pay selected</UButton>
+    </div>
+
     <DataTable export-title="Settlements" :columns="[
+      { key: 'sel', label: ' ' },
       { key: 'reference', label: 'Reference' },
       { key: 'vendor_name', label: 'Vendor' },
       { key: 'gross', label: 'Gross collections', align: 'right' },
@@ -57,6 +75,9 @@ function open(s: any) { selected.value = s; showDetail.value = true }
       net: fmtNaira(s.net_kobo), paid: s.paid_kobo ? fmtNaira(s.paid_kobo) : '-',
     }))" :loading="loading" clickable empty-title="No settlements yet"
       empty-hint="Build one from verified collections and applied charges." @row-click="open">
+      <template #sel="{ row }">
+        <UCheckbox v-if="['APPROVED', 'PARTIALLY_PAID'].includes(row.status)" :model-value="picked.includes(row.id)" @click.stop @update:model-value="toggle(row.id)" />
+      </template>
       <template #reference="{ row }"><span class="font-mono font-semibold text-primary-600">{{ row.reference }}</span></template>
       <template #net="{ value }"><span class="font-bold">{{ value }}</span></template>
       <template #status="{ row }"><StatusBadge :status="row.status" /></template>
@@ -82,6 +103,7 @@ function open(s: any) { selected.value = s; showDetail.value = true }
       </template>
     </UModal>
 
+    <SettlementPayBatch v-model:open="showBatch" :rows="pickedRows" @changed="afterBatch" />
     <SettlementDetail v-model:open="showDetail" :id="selected?.id ?? null" @changed="load" />
   </div>
 </template>

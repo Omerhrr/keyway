@@ -187,12 +187,20 @@ def get_settlement(settlement_id: int, user: User = Depends(require_settlement_v
     for i in items:
         o = db.get(Order, i.order_id) if i.order_id else None
         note = ""
+        when = None
+        if i.type == "COLLECTION":
+            cc = db.get(CODCollection, i.collection_id) if i.collection_id else None
+            when = (o.delivered_at if o and o.delivered_at else None) or (cc.collected_at if cc else None) or s.created_at
+        elif i.charge_id:
+            chg = db.get(Charge, i.charge_id)
+            when = chg.created_at if chg else s.created_at
+            note = (chg.reason or (chg.charge_type or "").replace("_", " ").title()) if chg else ""
         if o and i.type == "COLLECTION":
             from app.modules.vendors import _narrate
             from app.modules.orders_models import OrderItem, Customer
             cu = db.get(Customer, o.customer_id)
             note = f"{cu.name if cu else ''} · {_narrate(db.query(OrderItem).filter(OrderItem.order_id == o.id).order_by(OrderItem.id).all(), o)}"
-        out_items.append(serialize(i, order_reference=o.reference if o else None, note=note))
+        out_items.append(serialize(i, order_reference=o.reference if o else None, note=note, date=when))
     return serialize(s, vendor_name=v.name if v else None, items=out_items, payments=serialize_list(payments))
 
 
@@ -215,39 +223,69 @@ def approve(settlement_id: int, user: User = Depends(require_perm("settlements.a
     return serialize(s)
 
 
-@router.post("/{settlement_id}/pay")
-def record_payment(settlement_id: int, body: PayIn, user: User = Depends(require_perm("settlements.manage")), db: Session = Depends(get_db)):
-    s = db.get(Settlement, settlement_id)
-    if not s:
-        raise HTTPException(404, "Settlement not found")
+def _pay(db, s, user, amount, method, bank_ref, note):
     if s.status not in ("APPROVED", "PARTIALLY_PAID"):
-        raise HTTPException(400, f"Settlement must be APPROVED before payment (currently {s.status})")
-    if body.amount_kobo <= 0:
+        raise HTTPException(400, f"{s.reference} must be approved before payment (currently {s.status})")
+    if amount <= 0:
         raise HTTPException(400, "Payment amount must be positive")
-    if body.method not in PAY_METHODS:
+    if method not in PAY_METHODS:
         raise HTTPException(400, f"Unknown payment method. Valid: {', '.join(PAY_METHODS)}")
-    if s.paid_kobo + body.amount_kobo > s.net_kobo:
-        raise HTTPException(400, "Payment exceeds the settlement net amount")
-
+    if s.paid_kobo + amount > s.net_kobo:
+        raise HTTPException(400, f"Payment exceeds the amount still owed on {s.reference}")
     p = Payment(settlement_id=s.id, vendor_id=s.vendor_id, direction="VENDOR_PAYOUT",
-                amount_kobo=body.amount_kobo, method=body.method, bank_ref=body.bank_ref,
-                paid_at=utcnow(), recorded_by_user_id=user.id, note=body.note)
+                amount_kobo=amount, method=method, bank_ref=bank_ref,
+                paid_at=utcnow(), recorded_by_user_id=user.id, note=note)
     db.add(p)
-    s.paid_kobo += body.amount_kobo
+    s.paid_kobo += amount
     s.status = "PAID" if s.paid_kobo >= s.net_kobo else "PARTIALLY_PAID"
-
     # Ledger: vendor payable settles out through the bank
     from app.modules.ledger import get_account_by_subtype, post_journal
     payables = get_account_by_subtype(db, "VENDOR_PAYABLE")
     bank = get_account_by_subtype(db, "BANK")
     post_journal(db, memo=f"Vendor settlement payout {s.reference}",
                  source_type="SETTLEMENT_PAYOUT", source_id=s.id,
-                 lines=[{"account_id": payables.id, "debit_kobo": body.amount_kobo, "vendor_id": s.vendor_id},
-                        {"account_id": bank.id, "credit_kobo": body.amount_kobo}],
+                 lines=[{"account_id": payables.id, "debit_kobo": amount, "vendor_id": s.vendor_id},
+                        {"account_id": bank.id, "credit_kobo": amount}],
                  posted_by=user)
-    db.commit()
     notify(db, event_type="SETTLEMENT_PAID", title=f"Settlement {s.reference} payment recorded",
            vendor_id=s.vendor_id, entity_type="settlement", entity_id=s.id)
-    audit(db, user, "pay", "settlement", s.id, f"Payment {body.amount_kobo} recorded for {s.reference} ({s.status})")
+    audit(db, user, "pay", "settlement", s.id, f"Payment {amount} recorded for {s.reference} ({s.status})")
+
+
+@router.post("/{settlement_id}/pay")
+def record_payment(settlement_id: int, body: PayIn, user: User = Depends(require_perm("settlements.manage")), db: Session = Depends(get_db)):
+    s = db.get(Settlement, settlement_id)
+    if not s:
+        raise HTTPException(404, "Settlement not found")
+    _pay(db, s, user, body.amount_kobo, body.method, body.bank_ref, body.note)
     db.commit()
     return serialize(s)
+
+
+class BatchPayIn(BaseModel):
+    settlement_ids: list[int]
+    method: str = "BANK_TRANSFER"
+    bank_ref: str = ""
+    note: str = ""
+
+
+@router.post("/pay-batch")
+def pay_batch(body: BatchPayIn, user: User = Depends(require_perm("settlements.manage")), db: Session = Depends(get_db)):
+    """Pay several approved settlements in one go; each is paid what is still owed on it.
+    All or nothing: if one cannot be paid, none are."""
+    if not body.settlement_ids:
+        raise HTTPException(400, "Pick at least one settlement")
+    done, total = [], 0
+    try:
+        for sid in dict.fromkeys(body.settlement_ids):
+            s = db.get(Settlement, sid)
+            if not s:
+                raise HTTPException(404, "Settlement not found")
+            owed = s.net_kobo - s.paid_kobo
+            _pay(db, s, user, owed, body.method, body.bank_ref, body.note)
+            done.append(s.reference); total += owed
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"paid": done, "total_kobo": total}
