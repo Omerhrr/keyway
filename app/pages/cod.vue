@@ -109,7 +109,7 @@ async function confirmHandover(h: any) {
         <UButton icon="i-lucide-plus" @click="openRecord">Record collection</UButton>
       </template>
     </PageHeader>
-    <p class="text-sm text-zinc-500 -mt-3 mb-4">Expected and collected amounts are stored separately. Only verified collections become vendor funds.</p>
+    <p class="text-sm text-zinc-500 -mt-3 mb-4">Delivered COD orders are recorded automatically at the expected amount and go straight to awaiting settlement. Flag one only if the cash did not match.</p>
 
     <ScrollTabs :items="tabs" v-model="tab" class="mb-4" />
 
@@ -137,7 +137,7 @@ async function confirmHandover(h: any) {
         <template #collected="{ value, row }">
           <span :class="row.short !== 0 ? 'text-amber-600 font-semibold' : 'font-semibold'">{{ value }}</span>
         </template>
-        <template #status="{ row }"><StatusBadge :status="row.status" /></template>
+        <template #status="{ row }"><StatusBadge :status="row.stage || row.status" /></template>
         <template #actions="{ row }">
           <UButton v-if="row.status === 'PENDING_VERIFICATION'" size="xs" color="success" variant="soft" icon="i-lucide-book-check" @click.stop="askVerify(row)">Verify</UButton>
         </template>

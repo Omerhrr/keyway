@@ -415,7 +415,7 @@ def vendor_record(vendor_id: int, date_from: str = "", date_to: str = "",
     for st in sq.order_by(Settlement.id.desc()).all():
         refs = [r[0] for r in db.query(Order.reference).join(SettlementItem, SettlementItem.order_id == Order.id)
                 .filter(SettlementItem.settlement_id == st.id, SettlementItem.type == "COLLECTION").all()]
-        settlements.append({"reference": st.reference, "date": st.created_at, "gross_kobo": st.gross_kobo,
+        settlements.append({"id": st.id, "reference": st.reference, "date": st.created_at, "gross_kobo": st.gross_kobo,
                             "charges_kobo": st.charges_kobo, "net_kobo": st.net_kobo, "paid_kobo": st.paid_kobo,
                             "status": st.status, "orders": refs})
 

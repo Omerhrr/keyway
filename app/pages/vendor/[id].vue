@@ -29,10 +29,28 @@ async function load() {
     if (to.value) p.set('date_to', to.value)
     const [r, d] = await Promise.all([api(`/vendors/${id}/record?${p}`), api(`/vendors/${id}`)])
     rec.value = r; detail.value = d
+    preview.value = await api(`/settlements/preview?vendor_id=${id}`).catch(() => null)
     if (!warehouses.value.length) warehouses.value = (await api('/inventory/warehouses').catch(() => [])).filter((w: any) => w.is_active)
   } catch (e) { loadError.value = errMsg(e) } finally { loading.value = false }
 }
 onMounted(load)
+
+// settlement from this page
+const preview = ref<any>(null)
+const building = ref(false)
+const stlId = ref<number | null>(null)
+const showStl = ref(false)
+const openStl = computed(() => (rec.value?.settlements || []).filter((x: any) => x.status !== 'PAID' && x.status !== 'REVERSED'))
+function openSettlement(row: any) { stlId.value = row.id; showStl.value = true }
+async function buildSettlement() {
+  building.value = true
+  try {
+    const r = await api('/settlements/build', { method: 'POST', body: { vendor_id: Number(id) } })
+    useToast().add({ title: `Settlement ${r.reference} built`, description: `${fmtNaira(r.net_kobo)} net payable. Review it, add any charge, then approve.`, color: 'success' })
+    await load()
+    stlId.value = r.id; showStl.value = true
+  } catch (e) { useToast().add({ title: 'Nothing to settle', description: errMsg(e), color: 'error' }) } finally { building.value = false }
+}
 function clearDates() { from.value = ''; to.value = ''; load() }
 
 const s = computed(() => rec.value?.summary || {})
@@ -216,6 +234,29 @@ async function addContact() {
         </div>
       </div>
 
+      <!-- settle -->
+      <div class="rounded-2xl border border-primary-200 dark:border-primary-900 bg-primary-50/50 dark:bg-primary-950/20 p-3 sm:p-4 mb-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="min-w-0 flex-1 basis-60">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Settlement</p>
+            <template v-if="preview?.collections">
+              <p class="text-sm mt-0.5"><span class="font-bold text-lg tabular-nums">{{ fmtNaira(preview.net_kobo) }}</span> ready to pay {{ v.name }}</p>
+              <p class="text-xs text-zinc-500">{{ preview.collections }} delivered order{{ preview.collections === 1 ? '' : 's' }} ({{ preview.orders.join(', ') }}) · collected {{ fmtNaira(preview.gross_kobo) }} less our charges {{ fmtNaira(preview.charges_kobo) }}</p>
+            </template>
+            <p v-else class="text-sm text-zinc-500 mt-0.5">Nothing waiting to be settled. Delivered COD orders appear here automatically.</p>
+          </div>
+          <UButton v-if="preview?.can_build" icon="i-lucide-calculator" :loading="building" @click="buildSettlement">Settle now</UButton>
+        </div>
+        <div v-if="openStl.length" class="mt-3 pt-3 border-t border-primary-100 dark:border-primary-900 space-y-1.5">
+          <p class="text-xs text-zinc-500">Open settlements</p>
+          <button v-for="x in openStl" :key="x.id" type="button" class="w-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-3 py-2 text-left hover:border-primary-400" @click="openSettlement(x)">
+            <span class="font-mono font-semibold text-primary-600 text-sm">{{ x.reference }}</span>
+            <StatusBadge :status="x.status" />
+            <span class="text-sm font-semibold tabular-nums ml-auto">{{ fmtNaira(x.net_kobo - x.paid_kobo) }} <span class="text-xs font-normal text-zinc-400">to pay</span></span>
+          </button>
+        </div>
+      </div>
+
       <!-- sales numbers -->
       <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-5 grid grid-cols-2 sm:grid-cols-5 divide-zinc-100 dark:divide-zinc-800 sm:divide-x">
         <div class="p-3 sm:p-4"><p class="text-xs text-zinc-500">Delivered orders</p><p class="text-xl font-bold">{{ s.delivered }}</p><p class="text-[11px] text-zinc-400">{{ s.open }} still open</p></div>
@@ -265,7 +306,7 @@ async function addContact() {
           { key: 'net', label: 'Net', align: 'right' },
           { key: 'paid', label: 'Paid', align: 'right' },
           { key: 'status', label: 'Status' },
-        ]" :rows="stlRows" empty-title="No settlements yet">
+        ]" :rows="stlRows" clickable empty-title="No settlements yet" @row-click="openSettlement">
           <template #orders_text="{ row }"><p class="text-xs max-w-xs whitespace-normal">{{ row.orders_text }}</p></template>
           <template #status="{ row }"><StatusBadge :status="row.status" /></template>
         </DataTable>
@@ -330,6 +371,7 @@ async function addContact() {
       </div>
     </template>
 
+    <SettlementDetail v-model:open="showStl" :id="stlId" @changed="load" />
     <ReceiveStock v-model:open="showReceive" :vendors="rec ? [v] : []" :warehouses="warehouses" :vendor-id="Number(id)" :product-id="receiveProduct" @done="load" />
     <QuickProduct v-model:open="showAddProduct" :vendors="rec ? [v] : []" :vendor-id="Number(id)" @created="load" />
 

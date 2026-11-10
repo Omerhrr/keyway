@@ -42,13 +42,8 @@ def list_settlements(user: User = Depends(require_settlement_view), db: Session 
     return [serialize(s, vendor_name=v.name) for s, v in rows]
 
 
-@router.post("/build")
-def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlements.manage")), db: Session = Depends(get_db)):
-    """Compute a settlement batch: verified collections - authorized charges (PRD formula).
-    Reproducible: traceable to underlying orders and collections via settlement items."""
-    vendor = db.get(Vendor, body.vendor_id)
-    if not vendor:
-        raise HTTPException(404, "Vendor not found")
+def _gather(db: Session, vendor):
+    """Collections and charges that are ready to be settled for a vendor."""
     order_ids = [r[0] for r in db.query(Order.id).filter(Order.vendor_id == vendor.id).all()]
     settled_collection_ids = {i.collection_id for i in db.query(SettlementItem)
                               .filter(SettlementItem.collection_id.isnot(None)).all()}
@@ -70,6 +65,31 @@ def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlemen
     charges = [ch for ch in charges if ch.id not in settled_charge_ids
                and (ch.order_id is None or ch.order_id in collection_order_ids)]
 
+    return collections, charges
+
+
+@router.get("/preview")
+def preview(vendor_id: int, user: User = Depends(require_settlement_view), db: Session = Depends(get_db)):
+    """What a settlement built right now for this vendor would contain."""
+    vendor = db.get(Vendor, vendor_id)
+    if not vendor:
+        raise HTTPException(404, "Vendor not found")
+    collections, charges = _gather(db, vendor)
+    gross = sum(c.collected_kobo for c in collections)
+    charges_total = sum(ch.amount_kobo for ch in charges)
+    refs = [r[0] for r in db.query(Order.reference).filter(Order.id.in_([c.order_id for c in collections] or [0])).all()]
+    return {"orders": refs, "collections": len(collections), "gross_kobo": gross, "charges_kobo": charges_total,
+            "net_kobo": gross - charges_total, "can_build": bool(collections) and gross - charges_total > 0}
+
+
+@router.post("/build")
+def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlements.manage")), db: Session = Depends(get_db)):
+    """Compute a settlement batch: verified collections - authorized charges (PRD formula).
+    Reproducible: traceable to underlying orders and collections via settlement items."""
+    vendor = db.get(Vendor, body.vendor_id)
+    if not vendor:
+        raise HTTPException(404, "Vendor not found")
+    collections, charges = _gather(db, vendor)
     gross = sum(c.collected_kobo for c in collections)
     charges_total = sum(ch.amount_kobo for ch in charges)
     net = gross - charges_total
@@ -101,6 +121,50 @@ def build_settlement(body: BuildIn, user: User = Depends(require_perm("settlemen
            vendor_id=vendor.id, entity_type="settlement", entity_id=s.id)
     audit(db, user, "build", "settlement", s.id,
           f"Settlement {s.reference} built: gross {gross}, charges {charges_total}, net {net}")
+    db.commit()
+    return serialize(s)
+
+
+class AddChargeIn(BaseModel):
+    charge_type: str = "OTHER"
+    amount_kobo: int
+    reason: str
+
+
+@router.post("/{settlement_id}/charges")
+def add_settlement_charge(settlement_id: int, body: AddChargeIn, user: User = Depends(require_perm("settlements.manage")), db: Session = Depends(get_db)):
+    """Add one of our own charges to a settlement before it is approved (e.g. storage, special handling)."""
+    from app.modules.charges import apply_charge, CHARGE_TYPES
+    s = db.get(Settlement, settlement_id)
+    if not s:
+        raise HTTPException(404, "Settlement not found")
+    if s.status != "READY_FOR_APPROVAL":
+        raise HTTPException(400, "Charges can only be added before the settlement is approved")
+    if body.charge_type not in CHARGE_TYPES:
+        raise HTTPException(400, "Unknown charge type")
+    if body.amount_kobo <= 0:
+        raise HTTPException(400, "Enter the charge amount")
+    if not body.reason.strip():
+        raise HTTPException(400, "Every charge needs a recorded reason")
+    if s.net_kobo - body.amount_kobo < 0:
+        raise HTTPException(400, "This charge is more than the vendor is owed in this settlement")
+    from app.modules.ledger import get_account_by_subtype, post_journal
+    ch = apply_charge(db, vendor_id=s.vendor_id, order_id=None, charge_type=body.charge_type,
+                      amount_kobo=body.amount_kobo, reason=body.reason.strip(), actor=user, commit=False)
+    db.add(SettlementItem(settlement_id=s.id, order_id=None, charge_id=ch.id, type="CHARGE",
+                          gross_kobo=0, deduction_kobo=ch.amount_kobo, net_kobo=-ch.amount_kobo))
+    s.charges_kobo += ch.amount_kobo
+    s.net_kobo -= ch.amount_kobo
+    try:
+        post_journal(db, memo=f"Charge on settlement {s.reference}: {body.reason.strip()}",
+                     source_type="CHARGE_RECOGNITION", source_id=ch.id,
+                     lines=[{"account_id": get_account_by_subtype(db, "VENDOR_PAYABLE").id, "debit_kobo": ch.amount_kobo, "vendor_id": s.vendor_id},
+                            {"account_id": get_account_by_subtype(db, "LOGISTICS_REVENUE").id, "credit_kobo": ch.amount_kobo}],
+                     posted_by=user)
+    except ValueError as ex:
+        db.rollback()
+        raise HTTPException(400, str(ex))
+    audit(db, user, "add_charge", "settlement", s.id, f"{body.charge_type} {ch.amount_kobo} added to {s.reference}")
     db.commit()
     return serialize(s)
 

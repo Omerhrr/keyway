@@ -18,20 +18,62 @@ COD_METHODS = ("CASH", "BANK_TRANSFER", "DIGITAL", "POS", "CARD", "OTHER")
 COLLECTABLE_ORDER_STATUSES = ("DISPATCHED", "IN_TRANSIT", "DELIVERED")
 
 
-def ensure_cod_pending(db, order, delivery_id=None, rider_id=None):
-    """A delivered COD order always gets a PENDING_VERIFICATION collection record, no
-    matter which endpoint marked it delivered. Delivery is never proof of cash."""
+def _post_verification(db, c, o, user):
+    """Double-entry for a verified collection: cash -> vendor payable, then our charges -> revenue."""
+    from app.modules.ledger import get_account_by_subtype, post_journal
+    cod_account = get_account_by_subtype(db, "COD_CLEARING")
+    payables = get_account_by_subtype(db, "VENDOR_PAYABLE")
+    revenue = get_account_by_subtype(db, "LOGISTICS_REVENUE")
+    try:
+        if c.collected_kobo > 0:  # nothing collected -> nothing to journal (no zero-value entries)
+            post_journal(db,
+                         memo=f"COD collection verified for {o.reference}",
+                         source_type="COD_COLLECTION", source_id=c.id,
+                         lines=[{"account_id": cod_account.id, "debit_kobo": c.collected_kobo},
+                                {"account_id": payables.id, "credit_kobo": c.collected_kobo, "vendor_id": o.vendor_id}],
+                         posted_by=user)
+        # Charge recognition: vendor payable is reduced by operator's earned charges
+        from app.modules.charges_models import Charge
+        charges = db.query(Charge).filter(Charge.order_id == o.id, Charge.status == "APPLIED").all()
+        total_charges = sum(ch.amount_kobo for ch in charges)
+        if total_charges > 0:
+            post_journal(db,
+                         memo=f"Logistics charge recognition for {o.reference}",
+                         source_type="CHARGE_RECOGNITION", source_id=o.id,
+                         lines=[{"account_id": payables.id, "debit_kobo": total_charges, "vendor_id": o.vendor_id},
+                                {"account_id": revenue.id, "credit_kobo": total_charges}],
+                         posted_by=user)
+    except ValueError as ex:
+        raise
+
+
+def ensure_cod_pending(db, order, delivery_id=None, rider_id=None, actor=None):
+    """A delivered COD order gets its collection recorded automatically at the expected amount
+    and goes straight to "awaiting settlement" (verified). If anything differs from the expected
+    amount, finance can still flag it before the order is settled."""
     from app.modules.charges import ensure_order_charges
-    ensure_order_charges(db, order)
+    ensure_order_charges(db, order, actor)
     if order.payment_method != "COD":
         return None
     exists = db.query(CODCollection).filter(CODCollection.order_id == order.id).first()
     if exists:
         return exists
+    now = utcnow()
     c = CODCollection(order_id=order.id, delivery_id=delivery_id, expected_kobo=order.cod_amount_kobo,
-                      collected_kobo=0, method="CASH", status="PENDING_VERIFICATION", rider_id=rider_id)
+                      collected_kobo=order.cod_amount_kobo, method="CASH", status="PENDING_VERIFICATION",
+                      rider_id=rider_id, collected_at=now, collected_by_user_id=actor.id if actor else None,
+                      note="Auto-recorded on delivery at the expected amount")
     db.add(c)
     db.flush()
+    try:
+        with db.begin_nested():
+            _post_verification(db, c, order, actor)
+            c.status = "VERIFIED"
+            c.discrepancy_kobo = 0
+            c.verified_at = now
+            c.verified_by_user_id = actor.id if actor else None
+    except ValueError:
+        c.status = "PENDING_VERIFICATION"   # ledger not ready: stays for manual verification
     return c
 
 
@@ -66,7 +108,13 @@ def list_collections(user: User = Depends(require_cod_view), db: Session = Depen
     if status:
         query = query.filter(CODCollection.status == status)
     rows = query.order_by(CODCollection.id.desc()).limit(200).all()
-    return [serialize(c, order_reference=o.reference, customer_name=cu.name,
+    from app.modules.settlements_models import SettlementItem
+    settled = {i for (i,) in db.query(SettlementItem.collection_id).filter(SettlementItem.collection_id.isnot(None)).all()}
+    def stage(c):
+        if c.status == "VERIFIED":
+            return "IN_SETTLEMENT" if c.id in settled else "AWAITING_SETTLEMENT"
+        return c.status
+    return [serialize(c, order_reference=o.reference, customer_name=cu.name, stage=stage(c),
                       vendor_id=o.vendor_id, discrepancy_kobo=c.expected_kobo - c.collected_kobo)
             for c, o, cu in rows]
 
@@ -162,30 +210,8 @@ def verify_collection(collection_id: int, body: VerifyIn, user: User = Depends(r
         notify(db, event_type="COD_DISCREPANCY", title=f"COD discrepancy on {o.reference}",
                body=f"Short {abs(discrepancy) / 100:,.0f} NGN", entity_type="cod_collection", entity_id=c.id)
 
-    # --- Accounting (double-entry, per PRD example flow) ---
-    from app.modules.ledger import get_account_by_subtype, post_journal
-    cod_account = get_account_by_subtype(db, "COD_CLEARING")
-    payables = get_account_by_subtype(db, "VENDOR_PAYABLE")
-    revenue = get_account_by_subtype(db, "LOGISTICS_REVENUE")
     try:
-        if c.collected_kobo > 0:  # nothing collected -> nothing to journal (no zero-value entries)
-            post_journal(db,
-                         memo=f"COD collection verified for {o.reference}",
-                         source_type="COD_COLLECTION", source_id=c.id,
-                         lines=[{"account_id": cod_account.id, "debit_kobo": c.collected_kobo},
-                                {"account_id": payables.id, "credit_kobo": c.collected_kobo, "vendor_id": o.vendor_id}],
-                         posted_by=user)
-        # Charge recognition: vendor payable is reduced by operator's earned charges
-        from app.modules.charges_models import Charge
-        charges = db.query(Charge).filter(Charge.order_id == o.id, Charge.status == "APPLIED").all()
-        total_charges = sum(ch.amount_kobo for ch in charges)
-        if total_charges > 0:
-            post_journal(db,
-                         memo=f"Logistics charge recognition for {o.reference}",
-                         source_type="CHARGE_RECOGNITION", source_id=o.id,
-                         lines=[{"account_id": payables.id, "debit_kobo": total_charges, "vendor_id": o.vendor_id},
-                                {"account_id": revenue.id, "credit_kobo": total_charges}],
-                         posted_by=user)
+        _post_verification(db, c, o, user)
     except ValueError as ex:
         db.rollback()
         raise HTTPException(400, str(ex))

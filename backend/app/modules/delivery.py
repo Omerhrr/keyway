@@ -188,7 +188,7 @@ def update_delivery_status(delivery_id: int, body: DeliveryStatusIn, user: User 
                vendor_id=o.vendor_id, entity_type="order", entity_id=o.id)
         # Auto-create pending COD collection record (actual amount recorded on confirmation)
         from app.modules.cod import ensure_cod_pending
-        ensure_cod_pending(db, o, delivery_id=d.id, rider_id=d.rider_id)
+        ensure_cod_pending(db, o, delivery_id=d.id, rider_id=d.rider_id, actor=user)
     elif to == "FAILED":
         d.failure_reason = body.failure_reason or "Unspecified"
         o.status = "DELIVERY_FAILED"

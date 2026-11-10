@@ -609,7 +609,7 @@ def change_status(order_id: int, body: StatusIn, user: User = Depends(require_pe
         o.delivered_at = utcnow()
         consume_reservations(db, o.id, user)
         from app.modules.cod import ensure_cod_pending
-        ensure_cod_pending(db, o)
+        ensure_cod_pending(db, o, actor=user)
     elif to == "RETURNED_TO_WAREHOUSE":
         restock_return(db, o.id, user)
     elif to == "CONFIRMED":

@@ -61,8 +61,8 @@ export function statusColor(status: string): string {
   const s = (status || '').toUpperCase()
   if (['DELIVERED', 'CUSTOMER_CONFIRMED', 'VERIFIED', 'CONFIRMED', 'PAID', 'APPROVED'].includes(s)) return 'success'
   if (['CANCELLED', 'DELIVERY_FAILED', 'FAILED', 'DISCREPANCY', 'CUSTOMER_REJECTED', 'REJECTED', 'REVERSED'].includes(s)) return 'error'
-  if (['IN_TRANSIT', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'PROCESSING', 'PICKED_UP', 'RETURN_IN_TRANSIT', 'SENT'].includes(s)) return 'info'
-  if (['READY_FOR_DISPATCH', 'READY_FOR_APPROVAL', 'PENDING_REVIEW', 'CONVERTED'].includes(s)) return 'primary'
+  if (['IN_TRANSIT', 'DISPATCHED', 'OUT_FOR_DELIVERY', 'PROCESSING', 'PICKED_UP', 'RETURN_IN_TRANSIT', 'SENT', 'IN_SETTLEMENT'].includes(s)) return 'info'
+  if (['READY_FOR_DISPATCH', 'AWAITING_SETTLEMENT', 'READY_FOR_APPROVAL', 'PENDING_REVIEW', 'CONVERTED'].includes(s)) return 'primary'
   return 'neutral'
 }
 
