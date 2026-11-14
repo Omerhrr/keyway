@@ -5,4 +5,4 @@
 # A safety copy of the database is saved first (printed at the end of the run).
 set -e
 cd "$(dirname "$0")/.."
-docker compose exec keyway-api python reset_data.py "$@"
+docker compose exec keyway-api python -m app.reset_data "$@"
